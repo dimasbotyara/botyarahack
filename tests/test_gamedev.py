@@ -185,7 +185,7 @@ def test_app_boots_and_renders():
     # меню открывается и рисуется
     app.open_menu()
     app.draw()
-    assert len(app.menu_widgets) == 6
+    assert len(app.menu_widgets) == 7  # тема, размер, режим окна, слайдер, 3 чекбокса
     pygame.quit()
 
 
