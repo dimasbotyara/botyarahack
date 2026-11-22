@@ -43,12 +43,22 @@ BOLD_CHAIN = ['jetbrains_bold', 'symbols', 'emoji']
 class FontBook:
     """Кэш pygame.Font + рендер строки с фолбэком по глифам."""
 
+    #: сколько готовых поверхностей держим в памяти
+    CACHE_LIMIT = 3000
+
     def __init__(self, pygame_module):
         self.pg = pygame_module
         self._fonts: dict[tuple[str, int], object] = {}
         self._coverage: dict[str, set[int]] = {}
+        self._cache: dict[tuple, object] = {}
+        self._cache_order: list[tuple] = []
 
     # ── создание шрифтов ────────────────────────────────────────────────
+    def clear_cache(self) -> None:
+        """Сбросить кэш (нужно после смены темы, если цвета больше не нужны)."""
+        self._cache.clear()
+        self._cache_order.clear()
+
     def font(self, name: str, size: int):
         key = (name, size)
         if key not in self._fonts:
@@ -70,10 +80,24 @@ class FontBook:
     def render(self, text: str, size: int, color, chain=None):
         """Рендерит строку, подставляя недостающие глифы из фолбэков.
 
-        Возвращает одну поверхность (удобно блитить в любом месте).
+        Результат кэшируется: интерфейс перерисовывает одни и те же
+        подписи каждый кадр, а рендер шрифта — самая дорогая операция.
         """
-        pg = self.pg
         chain = chain or DEFAULT_CHAIN
+        key = (text, size, tuple(color), tuple(chain))
+        cached = self._cache.get(key)
+        if cached is not None:
+            return cached
+        surf = self._render_uncached(text, size, color, chain)
+        self._cache[key] = surf
+        self._cache_order.append(key)
+        if len(self._cache_order) > self.CACHE_LIMIT:
+            old = self._cache_order.pop(0)
+            self._cache.pop(old, None)
+        return surf
+
+    def _render_uncached(self, text, size, color, chain):
+        pg = self.pg
         main = self.font(chain[0], size)
         main_h = max(1, main.get_height())
 

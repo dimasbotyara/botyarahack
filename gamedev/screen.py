@@ -18,6 +18,7 @@ class Screen:
 
     def __init__(self, window: pygame.Surface, logical_size=None):
         self.window = window
+        self._scaled: pygame.Surface | None = None
         self.logical_w = logical_size[0] if logical_size else config.LOGICAL_W
         self.logical_h = logical_size[1] if logical_size else config.LOGICAL_H
         self.surface = pygame.Surface((self.logical_w, self.logical_h)).convert()
@@ -40,9 +41,17 @@ class Screen:
 
     # ── отрисовка ────────────────────────────────────────────────────
     def blit_to_window(self):
-        """Растягивает логическую поверхность на окно."""
-        if self.window.get_size() == (self.logical_w, self.logical_h):
+        """Растягивает логическую поверхность на окно.
+
+        smoothscale дорогой, поэтому результат кэшируется: при неизменном
+        размере окна поверхность переиспользуется. При масштабе 1:1
+        копируем напрямую, без ресемплинга.
+        """
+        size = self.window.get_size()
+        if size == (self.logical_w, self.logical_h):
             self.window.blit(self.surface, (0, 0))
-        else:
-            pygame.transform.smoothscale(
-                self.surface, self.window.get_size(), self.window)
+            return
+        if self._scaled is None or self._scaled.get_size() != size:
+            self._scaled = pygame.Surface(size).convert()
+        pygame.transform.smoothscale(self.surface, size, self._scaled)
+        self.window.blit(self._scaled, (0, 0))
