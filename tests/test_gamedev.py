@@ -173,12 +173,13 @@ def test_app_boots_and_renders():
 
     app.draw()
     frame = app.screen.surface.copy()
-    assert frame.get_size() == (config.LOGICAL_W, config.LOGICAL_H)
+    assert frame.get_size() == app.window.get_size()
 
     # на кадре не должно быть «пустого» экрана: панели и текст рисуются
+    w, h = frame.get_size()
     colors = {tuple(frame.get_at((x, y)))[:3]
-              for x in range(0, config.LOGICAL_W, 37)
-              for y in range(0, config.LOGICAL_H, 41)}
+              for x in range(0, w, 37)
+              for y in range(0, h, 41)}
     assert len(colors) > 3, 'кадр подозрительно одноцветный'
 
     # меню открывается и рисуется
@@ -218,38 +219,97 @@ def test_size_change_applies_new_window():
 
 # ─────────────────── плавное масштабирование ───────────────────
 def test_screen_smooth_scaling_modes():
-    """Плавное даёт сглаженные края, быстрое — только чистые пиксели."""
+    """Плавное рисует сразу в окно, быстрое — через логический растр."""
     import pygame
     from gamedev.screen import Screen
+    from assets.fonts.fontloader import FontBook
 
     pygame.display.init()
+    pygame.font.init()
+
+    # плавное: холст совпадает с окном
     win = pygame.display.set_mode((4, 4))
+    book = FontBook(pygame)
+    scr = Screen(win, logical_size=(2, 2), smooth=True, book=book)
+    assert scr.surface.get_size() == (2, 2), 'Canvas отдаёт логический размер'
+    assert scr.surface.real.get_size() == (4, 4), 'плавный режим — холст = окно'
+    scr.surface.fill((0, 0, 0))
+    scr.surface.fill((255, 255, 255), pygame.Rect(0, 0, 1, 1))
+    # без blit_to_window уже видно в окне — резкие пиксели, без размытия
+    colors = {tuple(win.get_at((x, y)))[:3] for x in range(4) for y in range(4)}
+    assert (255, 255, 255) in colors and (0, 0, 0) in colors
+    assert colors <= {(255, 255, 255), (0, 0, 0)}, f'плавный режим размыл: {colors}'
 
-    # шахматка 2×2 → окно 4×4
-    def checker():
-        scr = Screen(win, logical_size=(2, 2))
-        scr.surface.fill((0, 0, 0))
-        scr.surface.fill((255, 255, 255), pygame.Rect(0, 0, 1, 1))
-        scr.surface.fill((255, 255, 255), pygame.Rect(1, 1, 1, 1))
-        return scr
-
-    white, black = (255, 255, 255), (0, 0, 0)
-
-    fast = checker()
-    fast.smooth = False
-    fast.blit_to_window()
-    colors = {tuple(win.get_at((x, y)))[:3]
-              for x in range(4) for y in range(4)}
-    assert colors <= {white, black}, f'быстрый режим размыл пиксели: {colors}'
-
-    smooth = checker()
-    smooth.smooth = True
-    smooth.blit_to_window()
-    colors = {tuple(win.get_at((x, y)))[:3]
-              for x in range(4) for y in range(4)}
-    assert any(c not in (white, black) for c in colors), \
-        f'плавный режим не сгладил края: {colors}'
+    # быстрый: логический растр + nearest upscale
+    win2 = pygame.display.set_mode((4, 4))
+    scr2 = Screen(win2, logical_size=(2, 2), smooth=False, book=book)
+    assert scr2.surface.real.get_size() == (2, 2), 'быстрый — растр логический'
+    scr2.surface.fill((0, 0, 0))
+    scr2.surface.fill((255, 255, 255), pygame.Rect(0, 0, 1, 1))
+    scr2.surface.fill((255, 255, 255), pygame.Rect(1, 1, 1, 1))
+    # до blit_to_window окно ещё чёрное
+    scr2.blit_to_window()
+    colors = {tuple(win2.get_at((x, y)))[:3] for x in range(4) for y in range(4)}
+    assert colors <= {(255, 255, 255), (0, 0, 0)}, f'быстрый размыл: {colors}'
+    # плавный после переключения снова совпадает с окном
+    scr2.smooth = True
+    assert scr2.surface.real.get_size() == (4, 4)
     pygame.quit()
+
+
+def test_canvas_scales_coordinates():
+    """Canvas переводит логические координаты в реальные без щелей."""
+    import pygame
+    from gamedev.canvas import Canvas
+
+    pygame.display.init()
+    real = pygame.Surface((4, 4))
+    real.fill((0, 0, 0))
+    cv = Canvas(real, 2, 2)
+    assert cv.get_size() == (2, 2)
+    assert cv.sx == 2.0 and cv.sy == 2.0
+    # прямоугольник 1×1 логический → 2×2 реальных
+    cv.fill((255, 255, 255), pygame.Rect(0, 0, 1, 1))
+    assert tuple(real.get_at((0, 0)))[:3] == (255, 255, 255)
+    assert tuple(real.get_at((1, 1)))[:3] == (255, 255, 255)
+    assert tuple(real.get_at((2, 0)))[:3] == (0, 0, 0)
+    assert tuple(real.get_at((0, 2)))[:3] == (0, 0, 0)
+    # get_at через Canvas тоже масштабируется
+    assert tuple(cv.get_at((0, 0)))[:3] == (255, 255, 255)
+    assert tuple(cv.get_at((1, 0)))[:3] == (0, 0, 0)
+    pygame.quit()
+
+
+def test_glyph_rendered_in_window_size():
+    """book.render отдаёт растр в размере окна, логические габариты совпадают."""
+    import pygame
+    from gamedev.screen import Screen
+    from assets.fonts.fontloader import FontBook
+
+    pygame.display.init()
+    pygame.font.init()
+    win = pygame.display.set_mode((2304, 1452))  # 2× логического
+    book = FontBook(pygame)
+    scr = Screen(win, smooth=True, book=book)  # scale 2.0
+    assert book.render_scale == 2.0
+    txt = book.render('Привет', 14, (0, 255, 0))
+    # логическая ширина близка к book.size (разный хинтинг на HD даёт погрешность)
+    logical = book.size('Привет', 14)[0]
+    assert abs(txt.get_width() - logical) <= 4, f'логическая ширина уплыла: {txt.get_width()} vs {logical}'
+    # HD-растр больше логического (2×)
+    import pygame as _pg
+    assert _pg.Surface.get_width(txt) >= txt.get_width() * 1.8
+    # subsurface/copy делегируют и сохраняют масштаб
+    cut = txt.subsurface((0, 0, txt.get_width(), txt.get_height()))
+    assert cut.get_width() == txt.get_width()
+    assert _pg.Surface.get_width(cut) > 0
+    # при другом масштабе — другой растр (кэш по scale)
+    win2 = _pg.display.set_mode((1152, 726))
+    scr2 = Screen(win2, smooth=True, book=book)
+    assert book.render_scale == 1.0
+    txt2 = book.render('Привет', 14, (0, 255, 0))
+    assert _pg.Surface.get_width(txt2) < _pg.Surface.get_width(txt)
+    _pg.quit()
 
 
 def test_smooth_toggle_applies_live():
@@ -321,6 +381,28 @@ def test_click_outside_menu_closes_it():
         pygame.MOUSEBUTTONDOWN, {'pos': (2, 2), 'button': 1}))
     app.handle_events()
     assert not app.menu_open, 'клик за пределами оверлея должен закрывать меню'
+    pygame.quit()
+
+
+def test_click_outside_history_closes_it():
+    import pygame
+    from gamedev.app import App
+
+    app = App()
+    app.typing_name = False
+    app.history_open = True
+    app.history_entries = []
+
+    inside = app.screen.to_window(app._history_rect().center)
+    pygame.event.post(pygame.event.Event(
+        pygame.MOUSEBUTTONDOWN, {'pos': inside, 'button': 1}))
+    app.handle_events()
+    assert app.history_open, 'клик внутри истории не должен закрывать её'
+
+    pygame.event.post(pygame.event.Event(
+        pygame.MOUSEBUTTONDOWN, {'pos': (2, 2), 'button': 1}))
+    app.handle_events()
+    assert not app.history_open, 'клик за пределами истории должен закрывать её'
     pygame.quit()
 
 

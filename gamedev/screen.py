@@ -1,20 +1,19 @@
-"""Виртуальный экран: вёрстка в логических координатах, вывод с масштабом.
+"""Виртуальный экран: вёрстка в логических координатах, вывод в окно.
 
 Почему так: старый интерфейс жёстко занимал 1350×850 и на маленьком
-мониторе не влезал. Теперь всё рисуется в виртуальную поверхность
-LOGICAL_W × LOGICAL_H, а на экран уже масштабируется целиком под размер
-окна — вёрстка не ломается ни на 800×600, ни на 4K.
+мониторе не влезал. Теперь всё рисуется в логической системе
+LOGICAL_W × LOGICAL_H, а где именно — зависит от режима масштабирования
+(переключатель «Плавное масштабирование» в настройках, по умолчанию
+включено):
 
-Масштабирование бывает двух видов (переключатель «Плавное
-масштабирование» в настройках, по умолчанию включено):
+* плавное (smooth=True) — Canvas рисует СРАЗУ в реальные пиксели окна:
+  координаты переводятся на лету, шрифты растреризуются в размере окна.
+  Никакого растягивания картинки — текст и линии чёткие, как будто
+  интерфейс изначально был под это окно;
 
-* плавное (smooth=True) — суперсемплинг: кадр сначала дублируется на
-  промежуточный холст SUPERSAMPLE×, а затем мягко сводится к размеру
-  окна. Пиксели интерфейса остаются чёткими, а края не ползут
-  ступеньками — выглядит как качественное масштабирование, а не
-  растянутая картинка;
-* быстрое (smooth=False) — ближайший сосед: максимальная скорость и
-  абсолютно «пиксельный» вид, но со ступенчатыми краями.
+* быстрое (smooth=False) — растр в логическом размере 1152×726, на окно
+  растягивается ближайшим соседом: дёшево и «по-пиксельному», но с
+  лесенкой на нецелых масштабах.
 """
 
 from __future__ import annotations
@@ -22,22 +21,46 @@ from __future__ import annotations
 import pygame
 
 from . import config
+from .canvas import Canvas, install_hooks
 
 
 class Screen:
-    """Логическая поверхность + масштабирование в окно."""
-
-    SUPERSAMPLE = 2.5       # множитель промежуточного холста (суперсемплинг)
+    """Логическая поверхность + вывод в окно."""
 
     def __init__(self, window: pygame.Surface, logical_size=None,
-                 smooth: bool = True):
+                 smooth: bool = True, book=None):
+        install_hooks()
         self.window = window
         self.logical_w = logical_size[0] if logical_size else config.LOGICAL_W
         self.logical_h = logical_size[1] if logical_size else config.LOGICAL_H
-        self.surface = pygame.Surface((self.logical_w, self.logical_h)).convert()
-        self.smooth = smooth
-        self._scaled: pygame.Surface | None = None   # кадр под размер окна
-        self._super: pygame.Surface | None = None    # промежуточный холст
+        self.book = book
+        self._smooth = smooth
+        self._scratch: pygame.Surface | None = None
+        self.surface: Canvas | None = None
+        self.rebuild()
+
+    # ── режим ─────────────────────────────────────────────────────────
+    @property
+    def smooth(self) -> bool:
+        return self._smooth
+
+    @smooth.setter
+    def smooth(self, value: bool) -> None:
+        if bool(value) != self._smooth:
+            self._smooth = bool(value)
+            self.rebuild()
+
+    def rebuild(self) -> None:
+        """Пересоздаёт холст (смена размера окна или режима)."""
+        if self._smooth:
+            target = self.window
+        else:
+            self._scratch = pygame.Surface(
+                (self.logical_w, self.logical_h)).convert()
+            target = self._scratch
+        self.surface = Canvas(target, self.logical_w, self.logical_h)
+        if self.book is not None:
+            self.book.render_scale = self.surface.sx
 
     # ── масштаб ──────────────────────────────────────────────────────
     @property
@@ -54,26 +77,15 @@ class Screen:
         s = self.scale or 1.0
         return (int(pos[0] / s), int(pos[1] / s))
 
-    # ── отрисовка ────────────────────────────────────────────────────
+    # ── вывод ────────────────────────────────────────────────────────
     def blit_to_window(self):
-        """Масштабирует логическую поверхность на окно.
+        """Показывает нарисованный кадр.
 
-        Рабочие поверхности кэшируются по размеру окна. При масштабе
-        1:1 копируем напрямую, без ресемплинга.
+        В плавном режиме кадр уже нарисован прямо в окне — показывать
+        нечего. Быстрый режим растягивает логический растр ближайшим
+        соседом.
         """
-        size = self.window.get_size()
-        if size == (self.logical_w, self.logical_h):
-            self.window.blit(self.surface, (0, 0))
+        if self._smooth:
             return
-        if self._scaled is None or self._scaled.get_size() != size:
-            self._scaled = pygame.Surface(size).convert()
-        if self.smooth:
-            mid = (round(self.logical_w * self.SUPERSAMPLE),
-                   round(self.logical_h * self.SUPERSAMPLE))
-            if self._super is None or self._super.get_size() != mid:
-                self._super = pygame.Surface(mid).convert()
-            pygame.transform.scale(self.surface, mid, self._super)
-            pygame.transform.smoothscale(self._super, size, self._scaled)
-        else:
-            pygame.transform.scale(self.surface, size, self._scaled)
-        self.window.blit(self._scaled, (0, 0))
+        pygame.transform.scale(self.surface.real, self.window.get_size(),
+                               self.window)

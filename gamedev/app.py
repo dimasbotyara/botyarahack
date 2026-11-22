@@ -68,7 +68,8 @@ class App:
         from assets.fonts.fontloader import FontBook
         self.book = FontBook(pygame)
 
-        self.screen = Screen(self.window, smooth=self.settings.smooth_scaling)
+        self.screen = Screen(self.window, smooth=self.settings.smooth_scaling,
+                             book=self.book)
         self.clock = pygame.time.Clock()
         self.running = True
         self.time = 0.0
@@ -395,7 +396,8 @@ class App:
         self.size_info = compute_size(*self.monitor, mode=self.settings.window_scale)
         self.window = pygame.display.set_mode(
             (self.size_info.width, self.size_info.height))
-        self.screen = Screen(self.window, smooth=self.settings.smooth_scaling)
+        self.screen = Screen(self.window, smooth=self.settings.smooth_scaling,
+                             book=self.book)
 
     def open_menu(self) -> None:
         self.menu_open = True
@@ -409,6 +411,10 @@ class App:
     def save_and_close(self) -> None:
         self.settings.save()
         self.menu_open = False
+
+    def _history_rect(self) -> pygame.Rect:
+        return pygame.Rect((config.LOGICAL_W - 760) // 2,
+                           (config.LOGICAL_H - 500) // 2, 760, 500)
 
     def _toggle_history(self) -> None:
         self.history_open = not self.history_open
@@ -543,6 +549,28 @@ class App:
                     self.save_and_close()
                     continue
                 if not self.menu_open and self.log.handle(event):
+                    continue
+
+            # оверлей истории — клик мимо закрывает, колёсико прокручивает
+            if self.history_open:
+                if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+                    if not self._history_rect().collidepoint(self.screen.to_logical(event.pos)):
+                        self.history_open = False
+                        continue
+                if event.type == pygame.MOUSEWHEEL:
+                    pos = getattr(event, 'pos', None) or pygame.mouse.get_pos()
+                    if self._history_rect().collidepoint(self.screen.to_logical(pos)):
+                        self.history_scroll = max(0, self.history_scroll - event.y)
+                    continue
+                if event.type == pygame.KEYDOWN and event.key in (pygame.K_UP, pygame.K_DOWN):
+                    step = 1 if event.key == pygame.K_UP else -1
+                    self.history_scroll = max(0, self.history_scroll + step)
+                    continue
+                # любой другой клик/клавиша внутри оверлея — гасим
+                if event.type in (pygame.MOUSEBUTTONDOWN, pygame.MOUSEBUTTONUP,
+                                  pygame.MOUSEWHEEL, pygame.KEYDOWN):
+                    continue
+                if event.type == pygame.MOUSEMOTION:
                     continue
 
             if self.menu_open:
@@ -966,8 +994,7 @@ class App:
         theme, book = self.theme, self.book
         dim_surface(surf, 180)
 
-        w, h = 760, 500
-        r = pygame.Rect((W - w) // 2, (H - h) // 2, w, h)
+        r = self._history_rect()
         pygame.draw.rect(surf, theme['bg_dark'], r)
         pygame.draw.rect(surf, theme['accent'], r, 1)
 
