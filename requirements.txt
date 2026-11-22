@@ -1,49 +1,85 @@
 # ============================================================
 #  botyarahack — «SECURITY EXPLOIT KIT v5.0.0»
 #  Установка:  pip install -r requirements.txt
+#  Проверка:   python -c "import pygame; print(pygame.version.ver)"
 # ============================================================
 #
-# Python: >= 3.8  (рекомендуется 3.11–3.13)
-#   Синтаксис legacy/hacker-app.py совместим с 3.8+:
-#   f-строки, без walrus/match/pep585-аннотаций.
+# ------------------------------------------------------------
+#  PYTHON
+# ------------------------------------------------------------
+# Минимум — 3.8. Синтаксис всех файлов (gamedev/, run.py, tests/,
+# legacy/hacker-app.py) проверен разбором под 3.8, 3.9 и 3.10:
+# нет match, walrus, PEP 585 (list[int]) без `from __future__`.
+# Рекомендуется 3.11–3.13.
 #
-# GUI: tkinter
-#   ВАЖНО: tkinter НЕ устанавливается через pip — это часть
-#   стандартной библиотеки Python и системный пакет ОС:
-#     Debian/Ubuntu : sudo apt install python3-tk
-#     Arch          : sudo pacman -S tk
-#     Fedora        : sudo dnf install python3-tkinter
-#     macOS/Windows : входит в установщик с python.org
-#     Windows Store / embeddable Python / python-alpine:
-#                    tkinter может отсутствовать — берите python.org
+# На 3.14+ берите pygame-ce (см. ниже): у классического pygame
+# 2.6.1 колёс под 3.14 нет, придётся собирать из исходников.
 #
 # ------------------------------------------------------------
-#  СТОРОННИЕ ПАКЕТЫ
+#  ЗАВИСИМОСТИ
 # ------------------------------------------------------------
-# Сейчас (legacy/hacker-app.py) игра использует ТОЛЬКО стандартную
-# библиотеку: tkinter, threading, time, random, json, math,
-# datetime, pathlib, collections. Сторонних зависимостей — нет.
+# Нужен РОВНО ОДИН пакет. Оба дают одинаковый `import pygame`,
+# так что код менять не нужно — ставьте один из двух:
 #
-# ------------------------------------------------------------
-#  PYGAME — для порта интерфейса на pygame
-# ------------------------------------------------------------
-# legacy/hacker-app.py пока НЕ требует pygame (чистый tkinter).
-# Но assets/fonts/fontloader.py уже использует его — раскомментируйте
-# ОДИН из вариантов, когда начнём переписывать интерфейс:
+# pygame-ce>=2.5.8,<3        ← рекомендуется
+#   Активный форк pygame. Колёса под Python 3.10–3.15.
+#   Свежее SDL, быстрее выходят исправления.
 #
+# pygame>=2.6.1,<3           ← классика
+#   Оригинальный pygame. Колёса под Python 3.6–3.13.
+#   Нужен, если у вас 3.8–3.9: pygame-ce требует 3.10+.
+#
+# Ставить оба сразу нельзя — они конфликтуют (одно и то же имя
+# пакета `pygame`). Ниже версия для классического pygame
+# раскомментирована; если берёте pygame-ce — закомментируйте её
+# и раскомментируйте строку с pygame-ce.
+
 # pygame-ce>=2.5.8,<3
-#   Форк pygame (совместим: import pygame), живые колёса под
-#   Python 3.10–3.15. Рекомендуется как основной вариант.
-#
-# pygame>=2.6.1,<3
-#   Классический pygame; колёса есть под Python 3.6–3.13.
-#   Под Python 3.14 будет сборка из исходников.
-#
-# В песочнице ставится в venv (системный pip заблокирован PEP 668):
-#   python3 -m venv .venv && .venv/bin/pip install pygame
+pygame>=2.6.1,<3
 
 # ------------------------------------------------------------
-#  ШРИФТЫ — уже в репозитории, скачивать не нужно
+#  ВИРТУАЛЬНОЕ ОКРУЖЕНИЕ
 # ------------------------------------------------------------
-# assets/fonts/*.ttf (JetBrains Mono, OpenMoji, Noto Sans, IBM Plex Mono).
-# Игра работает офлайн — см. assets/fonts/README.md
+# В Debian/Ubuntu/Arch/Fedora системный pip заблокирован (PEP 668),
+# поэтому ставим в venv:
+#
+#   python3 -m venv .venv
+#   .venv/bin/pip install -r requirements.txt
+#   .venv/bin/python run.py
+#
+# Windows:
+#   python -m venv .venv
+#   .venv\Scripts\pip install -r requirements.txt
+#   .venv\Scripts\python run.py
+#
+# ------------------------------------------------------------
+#  TKINTER — только для legacy/hacker-app.py
+# ------------------------------------------------------------
+# ВАЖНО: tkinter НЕ ставится через pip — это часть стандартной
+# библиотеки и системный пакет ОС:
+#   Debian/Ubuntu : sudo apt install python3-tk
+#   Arch          : sudo pacman -S tk
+#   Fedora        : sudo dnf install python3-tkinter
+#   macOS/Windows : входит в установщик с python.org
+#   Windows Store / embeddable Python / python-alpine:
+#                  tkinter может отсутствовать — берите python.org
+#
+# Новая версия (run.py) tkinter не использует вообще.
+#
+# ------------------------------------------------------------
+#  ЧЕГО ЗДЕСЬ НЕТ И НЕ НУЖНО
+# ------------------------------------------------------------
+# Шрифты:   assets/fonts/*.ttf уже в репозитории, ничего качать не надо.
+#           Подробности — assets/fonts/README.md
+# Картинки: всё рисуется кодом (pygame.draw), ассетов с графикой нет.
+# Сеть:     игра не делает сетевых запросов, работает полностью офлайн.
+#
+# ------------------------------------------------------------
+#  ПРОВЕРКА УСТАНОВКИ
+# ------------------------------------------------------------
+#   .venv/bin/python -c "import pygame; print(pygame.version.ver)"
+#   .venv/bin/python -m gamedev          # запуск новой версии
+#   .venv/bin/python run.py legacy       # старая tkinter-версия
+#
+# Тесты (дисплей не нужен, идёт под SDL_VIDEODRIVER=dummy):
+#   SDL_VIDEODRIVER=dummy .venv/bin/python tests/test_gamedev.py
