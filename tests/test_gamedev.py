@@ -421,6 +421,91 @@ def test_click_outside_history_closes_it():
     pygame.quit()
 
 
+# ─────────── Esc: не выходит из игры, открывает паузу ───────────
+def _post_esc():
+    import pygame
+    pygame.event.post(pygame.event.Event(
+        pygame.KEYDOWN, {'key': pygame.K_ESCAPE, 'unicode': ''}))
+
+
+def test_escape_opens_pause_not_quit():
+    """Esc без открытых оверлеев открывает меню паузы, а не закрывает игру."""
+    import pygame
+    from gamedev.app import App
+
+    app = App()
+    app.typing_name = False
+    app.show_main_menu = False
+
+    _post_esc()
+    app.handle_events()
+    assert app.pause_open, 'Esc должен открывать меню паузы'
+    assert app.running, 'Esc не должен закрывать игру'
+
+    _post_esc()
+    app.handle_events()
+    assert not app.pause_open, 'повторный Esc закрывает паузу'
+    assert app.running, 'игра остаётся запущенной после закрытия паузы'
+    pygame.quit()
+
+
+def test_escape_on_main_menu_does_not_quit():
+    """Esc на главном меню не выходит из игры (выход — кнопкой «Выход»)."""
+    import pygame
+    from gamedev.app import App
+
+    app = App()
+    app.typing_name = False
+    assert app.show_main_menu
+
+    _post_esc()
+    app.handle_events()
+    assert app.running, 'Esc на главном меню не должен закрывать игру'
+    pygame.quit()
+
+
+# ─────────── настройки поверх паузы: закрываются настройки ───────────
+def test_settings_over_pause_close_settings_not_pause():
+    """Клик мимо панели при настройках поверх паузы закрывает настройки,
+    а не паузу (раньше закрывалась пауза, настройки висели над игрой)."""
+    import pygame
+    from gamedev.app import App
+
+    app = App()
+    app.typing_name = False
+    app.show_main_menu = False
+    app._toggle_pause()
+    app.open_menu()
+    assert app.pause_open and app.menu_open
+
+    pygame.event.post(pygame.event.Event(
+        pygame.MOUSEBUTTONDOWN, {'pos': (2, 2), 'button': 1}))
+    app.handle_events()
+    assert not app.menu_open, 'клик мимо должен закрывать настройки'
+    assert app.pause_open, 'пауза должна остаться открытой'
+    assert app.running
+    pygame.quit()
+
+
+def test_escape_with_settings_over_pause_closes_settings_only():
+    """Esc при настройках поверх паузы закрывает только настройки."""
+    import pygame
+    from gamedev.app import App
+
+    app = App()
+    app.typing_name = False
+    app.show_main_menu = False
+    app._toggle_pause()
+    app.open_menu()
+
+    _post_esc()
+    app.handle_events()
+    assert not app.menu_open, 'Esc должен закрывать настройки'
+    assert app.pause_open, 'пауза должна остаться открытой'
+    assert app.running
+    pygame.quit()
+
+
 if __name__ == '__main__':
     tests = [(n, f) for n, f in sorted(globals().items()) if n.startswith('test_')]
     failed = 0

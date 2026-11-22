@@ -98,6 +98,32 @@ def test_render_with_fallback():
     pygame.quit()
 
 
+def test_fallback_icon_baseline_aligned():
+    """Иконки фолбэков (⏸, ⚙) сидят на базовой линии основного шрифта.
+
+    Раньше чанки центрировались по высоте поверхности, и из-за разной
+    высоты шрифтов иконка «ПАУЗА» выпирала на 1–3px относительно текста.
+    """
+    import os
+    os.environ.setdefault('SDL_VIDEODRIVER', 'dummy')
+    import pygame
+    pygame.init()
+    pygame.font.init()
+    book = FontBook(pygame)
+
+    def ink_bottom(surf):
+        return surf.get_bounding_rect().bottom
+
+    for size in (10, 12, 14, 20):
+        for icon in ('⏸', '⚙'):
+            icon_surf = book.render(icon, size, (255, 255, 255))
+            text_surf = book.render('Х', size, (255, 255, 255))
+            diff = abs(ink_bottom(icon_surf) - ink_bottom(text_surf))
+            assert diff <= 1, \
+                f'{icon} size={size}: иконка на {diff}px выше/ниже базовой линии'
+    pygame.quit()
+
+
 if __name__ == '__main__':
     tests = [(n, f) for n, f in sorted(globals().items()) if n.startswith('test_')]
     failed = 0

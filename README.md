@@ -66,7 +66,7 @@ python3 -m venv .venv
 |-----|--------|
 | `ВЗЛОМАТЬ` button | 🚀 start attack / ⏹ stop |
 | `Space` | ⏸ pause / continue |
-| `Esc` | ⏹ cancel attack → close menu → quit |
+| `Esc` | ⏸ pause menu (first closes the topmost overlay) |
 | `M` | ⚙ settings |
 | click outside the settings/history overlay | ✖ close overlay |
 | `H` | 📜 attack history |
