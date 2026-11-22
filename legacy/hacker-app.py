@@ -4,35 +4,90 @@ import threading
 import time
 import random
 import json
-import math
-from datetime import datetime, timedelta
+from datetime import datetime
 from pathlib import Path
-from collections import deque
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # МИНИ-ИГРЫ
 # ═══════════════════════════════════════════════════════════════════════════════
 
-class RockPaperScissorsGame:
+# ── Палитры мини-игр ────────────────────────────────────────────────
+# Цвета лампочек/проводов/лабиринта — игровая логика, а не оформление,
+# поэтому они не берутся из темы. Раньше были разбросаны по коду.
+
+SIMON_COLORS = ['#ff0000', '#00cc00', '#3333ff', '#ffcc00']
+SIMON_DIM_COLORS = ['#330000', '#003300', '#000033', '#333300']
+
+WIRE_BG_COLORS = ['#cc0000', '#0044cc', '#00aa00', '#ccaa00', '#cccccc']
+WIRE_FG_COLORS = ['#ffffff', '#ffffff', '#ffffff', '#000000', '#000000']
+
+MAZE_WALL = '#333333'
+MAZE_FREE = '#111111'
+MAZE_GOAL = '#0066cc'
+MAZE_GRID = '#222222'
+MAZE_PLAYER = '#00ff00'
+MAZE_PLAYER_OUTLINE = '#88ff88'
+
+
+class MinigameBase:
+    """Общая база для всех мини-игр.
+
+    Убирает дублирование: создание окна, центрирование, обработку победы/поражения.
+    Введено в рефакторинге; поведение идентично восьми прежним копиям.
+    """
+
+    def __init__(self, parent, target_name, on_win, on_lose, theme):
+        self.parent = parent
+        self.target_name = target_name
+        self.on_win_callback = on_win
+        self.on_lose_callback = on_lose
+        self.theme = theme
+        self.window = None
+
+    def _make_window(self, title, size, bg, grab=True, on_close=None):
+        """Создаёт Toplevel, центрирует и вешает обработчик закрытия."""
+        self.window = tk.Toplevel(self.parent)
+        self.window.title(title)
+        self.window.geometry(size)
+        self.window.configure(bg=bg)
+        self.window.resizable(False, False)
+        if grab:
+            self.window.grab_set()
+        self.window.protocol("WM_DELETE_WINDOW", on_close or self._on_lose)
+        self._center_window()
+        return self.window
+
+    def _center_window(self):
+        """Единственная реализация на все мини-игры (раньше было 8 копий)."""
+        self.window.update_idletasks()
+        w = self.window.winfo_width()
+        h = self.window.winfo_height()
+        x = (self.window.winfo_screenwidth() - w) // 2
+        y = (self.window.winfo_screenheight() - h) // 2
+        self.window.geometry(f"+{x}+{y}")
+
+    def _on_win(self):
+        if self.window is not None:
+            self.window.destroy()
+        self.on_win_callback()
+
+    def _on_lose(self):
+        if self.window is not None:
+            self.window.destroy()
+        self.on_lose_callback()
+
+
+class RockPaperScissorsGame(MinigameBase):
     """Мини-игра: Камень-Ножницы-Бумага"""
 
     def __init__(self, parent, target_name, on_win, on_lose, theme):
-        self.on_win = on_win
-        self.on_lose = on_lose
-        self.theme = theme
+        super().__init__(parent, target_name, on_win, on_lose, theme)
         self.rounds_to_win = 2
         self.player_score = 0
         self.bot_score = 0
 
-        self.window = tk.Toplevel(parent)
-        self.window.title("⚠ АНТИВИРУС ОБНАРУЖЕН!")
-        self.window.geometry("500x420")
-        self.window.configure(bg=theme['bg_dark'])
-        self.window.resizable(False, False)
-        self.window.grab_set()
-        self.window.protocol("WM_DELETE_WINDOW", self._on_lose)
-        self._center_window()
+        self._make_window("⚠ АНТИВИРУС ОБНАРУЖЕН!", "500x420", theme['bg_dark'])
 
         tk.Label(self.window,
                  text=f"⚠ АНТИВИРУС {target_name} ⚠",
@@ -46,7 +101,7 @@ class RockPaperScissorsGame:
 
         tk.Label(self.window,
                  text=f"Нужно побед: {self.rounds_to_win}",
-                 bg=theme['bg_dark'], fg='#ffcc00',
+                 bg=theme['bg_dark'], fg=theme['warning'],
                  font=('Consolas', 10)).pack()
 
         self.score_var = tk.StringVar(value="Вы: 0  |  Антивирус: 0")
@@ -58,7 +113,7 @@ class RockPaperScissorsGame:
         self.result_var = tk.StringVar(value="Выберите ваш ход:")
         self.result_label = tk.Label(self.window,
                                      textvariable=self.result_var,
-                                     bg=theme['bg_dark'], fg='#ffffff',
+                                     bg=theme['bg_dark'], fg=theme['fg_main'],
                                      font=('Consolas', 11))
         self.result_label.pack(pady=5)
 
@@ -78,15 +133,9 @@ class RockPaperScissorsGame:
         self.hint_var = tk.StringVar(value="")
         tk.Label(self.window,
                  textvariable=self.hint_var,
-                 bg=theme['bg_dark'], fg='#666666',
+                 bg=theme['bg_dark'], fg=theme['fg_dim'],
                  font=('Consolas', 9)).pack(pady=(10, 0))
 
-    def _center_window(self):
-        self.window.update_idletasks()
-        w, h = self.window.winfo_width(), self.window.winfo_height()
-        x = (self.window.winfo_screenwidth() - w) // 2
-        y = (self.window.winfo_screenheight() - h) // 2
-        self.window.geometry(f"+{x}+{y}")
 
     def play(self, player_choice):
         losing_moves = {"rock": "scissors", "scissors": "paper", "paper": "rock"}
@@ -105,16 +154,16 @@ class RockPaperScissorsGame:
         if bot_choice == losing_moves[player_choice]:
             self.player_score += 1
             self.result_var.set(f"Вы: {names[player_choice]}  vs  Бот: {names[bot_choice]}\n✓ Вы выиграли раунд!")
-            self.result_label.config(fg='#00ff00')
+            self.result_label.config(fg=theme['accent'])
             self.hint_var.set("Антивирус выбрал... серьёзно? 😂")
         elif bot_choice == player_choice:
             self.result_var.set(f"Вы: {names[player_choice]}  vs  Бот: {names[bot_choice]}\n— Ничья!")
-            self.result_label.config(fg='#ffcc00')
+            self.result_label.config(fg=theme['warning'])
             self.hint_var.set("Антивирус задумался...")
         else:
             self.bot_score += 1
             self.result_var.set(f"Вы: {names[player_choice]}  vs  Бот: {names[bot_choice]}\n✗ Антивирус выиграл!")
-            self.result_label.config(fg='#ff3333')
+            self.result_label.config(fg=theme['error'])
             self.hint_var.set("Повезло боту...")
 
         self.score_var.set(f"Вы: {self.player_score}  |  Антивирус: {self.bot_score}")
@@ -126,35 +175,20 @@ class RockPaperScissorsGame:
             self.result_var.set("💀 АНТИВИРУС ПОБЕДИЛ!")
             self.window.after(1000, self._on_lose)
 
-    def _on_win(self):
-        self.window.destroy()
-        self.on_win()
-
-    def _on_lose(self):
-        self.window.destroy()
-        self.on_lose()
 
 
-class TicTacToeGame:
+
+class TicTacToeGame(MinigameBase):
     """Мини-игра: Крестики-нолики"""
 
     def __init__(self, parent, target_name, on_win, on_lose, theme):
-        self.on_win = on_win
-        self.on_lose = on_lose
-        self.theme = theme
+        super().__init__(parent, target_name, on_win, on_lose, theme)
         self.board = [""] * 9
         self.player = "X"
         self.bot = "O"
         self.game_over = False
 
-        self.window = tk.Toplevel(parent)
-        self.window.title("⚠ ФАЙРВОЛЛ АКТИВИРОВАН!")
-        self.window.geometry("420x520")
-        self.window.configure(bg=theme['bg_dark'])
-        self.window.resizable(False, False)
-        self.window.grab_set()
-        self.window.protocol("WM_DELETE_WINDOW", self._on_lose)
-        self._center_window()
+        self._make_window("⚠ ФАЙРВОЛЛ АКТИВИРОВАН!", "420x520", theme['bg_dark'])
 
         tk.Label(self.window,
                  text=f"⚠ ФАЙРВОЛЛ {target_name} ⚠",
@@ -169,7 +203,7 @@ class TicTacToeGame:
         self.status_var = tk.StringVar(value="Ваш ход!")
         tk.Label(self.window,
                  textvariable=self.status_var,
-                 bg=theme['bg_dark'], fg='#ffffff',
+                 bg=theme['bg_dark'], fg=theme['fg_main'],
                  font=('Consolas', 12, 'bold')).pack(pady=5)
 
         board_frame = tk.Frame(self.window, bg=theme['border'])
@@ -188,22 +222,16 @@ class TicTacToeGame:
         self.hint_var = tk.StringVar(value="Файрволл не умный... 🤫")
         tk.Label(self.window,
                  textvariable=self.hint_var,
-                 bg=theme['bg_dark'], fg='#555555',
+                 bg=theme['bg_dark'], fg=theme['fg_dim'],
                  font=('Consolas', 9)).pack(pady=(10, 0))
 
-    def _center_window(self):
-        self.window.update_idletasks()
-        w, h = self.window.winfo_width(), self.window.winfo_height()
-        x = (self.window.winfo_screenwidth() - w) // 2
-        y = (self.window.winfo_screenheight() - h) // 2
-        self.window.geometry(f"+{x}+{y}")
 
     def player_move(self, idx):
         if self.game_over or self.board[idx]:
             return
 
         self.board[idx] = self.player
-        self.buttons[idx].config(text="X", fg='#00ff00', state=tk.DISABLED)
+        self.buttons[idx].config(text="X", fg=theme['accent'], state=tk.DISABLED)
 
         if self._check_winner(self.player):
             self.game_over = True
@@ -233,7 +261,7 @@ class TicTacToeGame:
             move = random.choice(empty)
 
         self.board[move] = self.bot
-        self.buttons[move].config(text="O", fg='#ff4444', state=tk.DISABLED)
+        self.buttons[move].config(text="O", fg=theme['error'], state=tk.DISABLED)
 
         hints = ["Файрволл думал 0.003 сек...", "Случайный ход!", "'Стратегия!'"]
         self.hint_var.set(random.choice(hints))
@@ -270,22 +298,14 @@ class TicTacToeGame:
         wins = [(0,1,2), (3,4,5), (6,7,8), (0,3,6), (1,4,7), (2,5,8), (0,4,8), (2,4,6)]
         return any(self.board[a] == self.board[b] == self.board[c] == mark for a, b, c in wins)
 
-    def _on_win(self):
-        self.window.destroy()
-        self.on_win()
-
-    def _on_lose(self):
-        self.window.destroy()
-        self.on_lose()
 
 
-class SimonSaysGame:
+
+class SimonSaysGame(MinigameBase):
     """Мини-игра: Повтори последовательность"""
 
     def __init__(self, parent, target_name, on_win, on_lose, theme):
-        self.on_win = on_win
-        self.on_lose = on_lose
-        self.theme = theme
+        super().__init__(parent, target_name, on_win, on_lose, theme)
         self.sequence = []
         self.player_input = []
         self.round = 0
@@ -293,36 +313,29 @@ class SimonSaysGame:
         self.showing = False
         self.game_over = False
 
-        self.window = tk.Toplevel(parent)
-        self.window.title("⚠ ШИФРОВАНИЕ!")
-        self.window.geometry("450x480")
-        self.window.configure(bg='#0a000a')
-        self.window.resizable(False, False)
-        self.window.grab_set()
-        self.window.protocol("WM_DELETE_WINDOW", self._on_lose)
-        self._center_window()
+        self._make_window("⚠ ШИФРОВАНИЕ!", "450x480", theme['bg_dark'])
 
         tk.Label(self.window,
                  text=f"⚠ ШИФРОВАНИЕ {target_name} ⚠",
-                 bg='#0a000a', fg='#cc44ff',
+                 bg=theme['bg_dark'], fg=theme['fg_main'],
                  font=('Consolas', 14, 'bold')).pack(pady=(15, 5))
 
         tk.Label(self.window,
                  text=f"Повторите последовательность! {self.rounds_to_win} раунда.",
-                 bg='#0a000a', fg='#bb88ff',
+                 bg=theme['bg_dark'], fg=theme['fg_dim'],
                  font=('Consolas', 10)).pack(pady=(0, 10))
 
         self.status_var = tk.StringVar(value="Смотрите...")
         tk.Label(self.window,
                  textvariable=self.status_var,
-                 bg='#0a000a', fg='#ffffff',
+                 bg=theme['bg_dark'], fg=theme['fg_main'],
                  font=('Consolas', 11, 'bold')).pack(pady=5)
 
-        grid_frame = tk.Frame(self.window, bg='#0a000a')
+        grid_frame = tk.Frame(self.window, bg=theme['bg_dark'])
         grid_frame.pack(pady=15)
 
-        self.colors = ['#ff0000', '#00cc00', '#3333ff', '#ffcc00']
-        self.dim_colors = ['#330000', '#003300', '#000033', '#333300']
+        self.colors = SIMON_COLORS
+        self.dim_colors = SIMON_DIM_COLORS
         self.color_buttons = []
 
         for i, (row, col) in enumerate([(0, 0), (0, 1), (1, 0), (1, 1)]):
@@ -336,17 +349,11 @@ class SimonSaysGame:
         self.round_var = tk.StringVar(value="Раунд: 0 / 3")
         tk.Label(self.window,
                  textvariable=self.round_var,
-                 bg='#0a000a', fg='#888888',
+                 bg=theme['bg_dark'], fg=theme['fg_dim'],
                  font=('Consolas', 10)).pack(pady=(10, 0))
 
         self.window.after(800, self.next_round)
 
-    def _center_window(self):
-        self.window.update_idletasks()
-        w, h = self.window.winfo_width(), self.window.winfo_height()
-        x = (self.window.winfo_screenwidth() - w) // 2
-        y = (self.window.winfo_screenheight() - h) // 2
-        self.window.geometry(f"+{x}+{y}")
 
     def next_round(self):
         self.round += 1
@@ -407,57 +414,43 @@ class SimonSaysGame:
         for btn in self.color_buttons:
             btn.config(state=tk.NORMAL)
 
-    def _on_win(self):
-        self.window.destroy()
-        self.on_win()
-
-    def _on_lose(self):
-        self.window.destroy()
-        self.on_lose()
 
 
-class WireDefuseGame:
+
+class WireDefuseGame(MinigameBase):
     """Мини-игра: Обезвредь бомбу"""
 
     def __init__(self, parent, target_name, on_win, on_lose, theme):
-        self.on_win = on_win
-        self.on_lose = on_lose
+        super().__init__(parent, target_name, on_win, on_lose, theme)
         self.timer_id = None
 
-        self.window = tk.Toplevel(parent)
-        self.window.title("⚠ БОМБА!")
-        self.window.geometry("500x550")  # Увеличил высоту с 450 до 550
-        self.window.configure(bg='#1a1a00')
-        self.window.resizable(False, False)
-        self.window.grab_set()
-        self.window.protocol("WM_DELETE_WINDOW", self._on_lose)
-        self._center_window()
+        self._make_window("⚠ БОМБА!", "500x550", theme['bg_dark'])
 
         tk.Label(self.window,
                  text=f"💣 БОМБА {target_name} 💣",
-                 bg='#1a1a00', fg='#ffcc00',
+                 bg=theme['bg_dark'], fg=theme['warning'],
                  font=('Consolas', 14, 'bold')).pack(pady=(15, 5))
 
         tk.Label(self.window,
                  text="Перережьте правильный провод!\nПодсказка внизу 👇",
-                 bg='#1a1a00', fg='#ffdd66',
+                 bg=theme['bg_dark'], fg=theme['warning'],
                  font=('Consolas', 10)).pack(pady=(0, 10))
 
         self.time_left = 25  # Увеличил время с 20 до 25
         self.timer_var = tk.StringVar(value=f"⏱ {self.time_left} сек")
         self.timer_label = tk.Label(self.window,
                                     textvariable=self.timer_var,
-                                    bg='#1a1a00', fg='#ff4444',
+                                    bg=theme['bg_dark'], fg=theme['error'],
                                     font=('Consolas', 18, 'bold'))
         self.timer_label.pack(pady=10)
 
         wire_colors = ['КРАСНЫЙ', 'СИНИЙ', 'ЗЕЛЁНЫЙ', 'ЖЁЛТЫЙ', 'БЕЛЫЙ']
-        wire_bgs = ['#cc0000', '#0044cc', '#00aa00', '#ccaa00', '#cccccc']
-        wire_fgs = ['#ffffff', '#ffffff', '#ffffff', '#000000', '#000000']
+        wire_bgs = WIRE_BG_COLORS
+        wire_fgs = WIRE_FG_COLORS
 
         self.correct_wire = random.randint(0, 4)
 
-        wires_frame = tk.Frame(self.window, bg='#1a1a00')
+        wires_frame = tk.Frame(self.window, bg=theme['bg_dark'])
         wires_frame.pack(pady=10)
 
         self.wire_buttons = []
@@ -472,39 +465,32 @@ class WireDefuseGame:
             self.wire_buttons.append(btn)
 
         # Разделитель
-        tk.Frame(self.window, bg='#333300', height=2).pack(fill=tk.X, padx=20, pady=(15, 10))
+        tk.Frame(self.window, bg=theme['bg_medium'], height=2).pack(fill=tk.X, padx=20, pady=(15, 10))
 
         # Подсказка — теперь ОЧЕНЬ заметная
-        hint_frame = tk.Frame(self.window, bg='#002200', 
-                              highlightbackground='#00ff00',
+        hint_frame = tk.Frame(self.window, bg=theme['bg_medium'], 
+                              highlightbackground=theme['accent'],
                               highlightthickness=2)
         hint_frame.pack(fill=tk.X, padx=20, pady=5)
 
         tk.Label(hint_frame,
                  text="💡 ПОДСКАЗКА:",
-                 bg='#002200', fg='#88ff88',
+                 bg=theme['bg_medium'], fg=theme['accent'],
                  font=('Consolas', 10)).pack(pady=(5, 0))
 
         tk.Label(hint_frame,
                  text=f"Режь {wire_colors[self.correct_wire]}!",
-                 bg='#002200', fg='#00ff00',
+                 bg=theme['bg_medium'], fg=theme['accent'],
                  font=('Consolas', 16, 'bold')).pack(pady=(0, 10))
 
         self.result_var = tk.StringVar(value="")
         tk.Label(self.window,
                  textvariable=self.result_var,
-                 bg='#1a1a00', fg='#ffffff',
+                 bg=theme['bg_dark'], fg=theme['fg_main'],
                  font=('Consolas', 12, 'bold')).pack(pady=10)
 
         self._tick()
 
-    def _center_window(self):
-        self.window.update_idletasks()
-        w = self.window.winfo_width()
-        h = self.window.winfo_height()
-        x = (self.window.winfo_screenwidth() - w) // 2
-        y = (self.window.winfo_screenheight() - h) // 2
-        self.window.geometry(f"+{x}+{y}")
 
     def _tick(self):
         if self.time_left <= 0:
@@ -516,7 +502,7 @@ class WireDefuseGame:
         self.time_left -= 1
         self.timer_var.set(f"⏱ {self.time_left} сек")
         if self.time_left <= 5:
-            self.timer_label.config(fg='#ff0000')
+            self.timer_label.config(fg=theme['error'])
         self.timer_id = self.window.after(1000, self._tick)
 
     def cut_wire(self, idx):
@@ -535,33 +521,18 @@ class WireDefuseGame:
         for btn in self.wire_buttons:
             btn.config(state=tk.DISABLED)
 
-    def _on_win(self):
-        self.window.destroy()
-        self.on_win()
-
-    def _on_lose(self):
-        self.window.destroy()
-        self.on_lose()
 
 
-class TypeCodeGame:
+
+class TypeCodeGame(MinigameBase):
     """Мини-игра: Напечатай код"""
 
     def __init__(self, parent, target_name, on_win, on_lose, theme):
-        self.on_win = on_win
-        self.on_lose = on_lose
-        self.theme = theme
+        super().__init__(parent, target_name, on_win, on_lose, theme)
         self.timer_id = None
         self.attempts = 3
 
-        self.window = tk.Toplevel(parent)
-        self.window.title("⚠ АУТЕНТИФИКАЦИЯ!")
-        self.window.geometry("600x380")
-        self.window.configure(bg=theme['bg_dark'])
-        self.window.resizable(False, False)
-        self.window.grab_set()
-        self.window.protocol("WM_DELETE_WINDOW", self._on_lose)
-        self._center_window()
+        self._make_window("⚠ АУТЕНТИФИКАЦИЯ!", "600x380", theme['bg_dark'])
 
         tk.Label(self.window,
                  text=f"⌨ АУТЕНТИФИКАЦИЯ {target_name} ⌨",
@@ -578,7 +549,7 @@ class TypeCodeGame:
 
         self.code_label = tk.Label(self.window,
                                    text=self.target_code,
-                                   bg='#001100', fg='#00ff00',
+                                   bg=theme['bg_medium'], fg=theme['accent'],
                                    font=('Consolas', 14, 'bold'),
                                    padx=20, pady=10)
         self.code_label.pack(pady=15, padx=20, fill=tk.X)
@@ -587,15 +558,15 @@ class TypeCodeGame:
         self.timer_var = tk.StringVar(value=f"⏱ {self.time_left} сек | Попытки: {self.attempts}")
         self.timer_label = tk.Label(self.window,
                                     textvariable=self.timer_var,
-                                    bg=theme['bg_dark'], fg='#ffcc00',
+                                    bg=theme['bg_dark'], fg=theme['warning'],
                                     font=('Consolas', 12))
         self.timer_label.pack(pady=5)
 
         self.entry_var = tk.StringVar()
         self.entry = tk.Entry(self.window,
                               textvariable=self.entry_var,
-                              bg='#000000', fg='#00ff00',
-                              insertbackground='#00ff00',
+                              bg=theme['bg_medium'], fg=theme['accent'],
+                              insertbackground=theme['accent'],
                               font=('Consolas', 14), width=50)
         self.entry.pack(pady=10)
         self.entry.focus_set()
@@ -609,17 +580,11 @@ class TypeCodeGame:
         self.result_var = tk.StringVar(value="")
         tk.Label(self.window,
                  textvariable=self.result_var,
-                 bg=theme['bg_dark'], fg='#ffffff',
+                 bg=theme['bg_dark'], fg=theme['fg_main'],
                  font=('Consolas', 11)).pack(pady=5)
 
         self._tick()
 
-    def _center_window(self):
-        self.window.update_idletasks()
-        w, h = self.window.winfo_width(), self.window.winfo_height()
-        x = (self.window.winfo_screenwidth() - w) // 2
-        y = (self.window.winfo_screenheight() - h) // 2
-        self.window.geometry(f"+{x}+{y}")
 
     def _tick(self):
         if self.time_left <= 0:
@@ -631,7 +596,7 @@ class TypeCodeGame:
         self.time_left -= 1
         self.timer_var.set(f"⏱ {self.time_left} сек | Попытки: {self.attempts}")
         if self.time_left <= 10:
-            self.timer_label.config(fg='#ff4444')
+            self.timer_label.config(fg=theme['error'])
         self.timer_id = self.window.after(1000, self._tick)
 
     def check_code(self):
@@ -654,32 +619,17 @@ class TypeCodeGame:
                 self.entry_var.set("")
                 self.timer_var.set(f"⏱ {self.time_left} сек | Попытки: {self.attempts}")
 
-    def _on_win(self):
-        self.window.destroy()
-        self.on_win()
-
-    def _on_lose(self):
-        self.window.destroy()
-        self.on_lose()
 
 
-class MazeGame:
+
+class MazeGame(MinigameBase):
     """Мини-игра: Лабиринт"""
 
     def __init__(self, parent, target_name, on_win, on_lose, theme):
-        self.on_win = on_win
-        self.on_lose = on_lose
-        self.theme = theme
+        super().__init__(parent, target_name, on_win, on_lose, theme)
 
-        self.window = tk.Toplevel(parent)
-        self.window.title("⚠ ПРОКСИ-ЛАБИРИНТ!")
-        self.window.geometry("500x580")
-        self.window.configure(bg=theme['bg_dark'])
-        self.window.resizable(False, False)
-        self.window.grab_set()
-        self.window.protocol("WM_DELETE_WINDOW", self._on_lose)
+        self._make_window("⚠ ПРОКСИ-ЛАБИРИНТ!", "500x580", theme['bg_dark'])
         self.window.focus_set()
-        self._center_window()
 
         tk.Label(self.window,
                  text=f"🔀 ЛАБИРИНТ {target_name} 🔀",
@@ -710,7 +660,7 @@ class MazeGame:
         self.canvas = tk.Canvas(self.window,
                                 width=self.cell_size * 10,
                                 height=self.cell_size * 10,
-                                bg='#000000',
+                                bg=theme['bg_dark'],
                                 highlightthickness=2,
                                 highlightbackground=theme['border'])
         self.canvas.pack(pady=10)
@@ -728,12 +678,6 @@ class MazeGame:
         for key in ['<Up>', '<Down>', '<Left>', '<Right>', '<w>', '<s>', '<a>', '<d>']:
             self.window.bind(key, self._handle_key)
 
-    def _center_window(self):
-        self.window.update_idletasks()
-        w, h = self.window.winfo_width(), self.window.winfo_height()
-        x = (self.window.winfo_screenwidth() - w) // 2
-        y = (self.window.winfo_screenheight() - h) // 2
-        self.window.geometry(f"+{x}+{y}")
 
     def _handle_key(self, event):
         key_map = {'Up': (-1, 0), 'Down': (1, 0), 'Left': (0, -1), 'Right': (0, 1),
@@ -750,15 +694,16 @@ class MazeGame:
                 x2, y2 = x1 + self.cell_size, y1 + self.cell_size
 
                 cell = self.maze[row][col]
-                color = '#333333' if cell == 1 else '#0066cc' if cell == 3 else '#111111'
+                color = MAZE_WALL if cell == 1 else MAZE_GOAL if cell == 3 else MAZE_FREE
 
-                self.canvas.create_rectangle(x1, y1, x2, y2, fill=color, outline='#222222')
+                self.canvas.create_rectangle(x1, y1, x2, y2, fill=color, outline=MAZE_GRID)
 
         pr, pc = self.player_pos
         px = pc * self.cell_size + self.cell_size // 2
         py = pr * self.cell_size + self.cell_size // 2
         r = self.cell_size // 3
-        self.canvas.create_oval(px - r, py - r, px + r, py + r, fill='#00ff00', outline='#88ff88')
+        self.canvas.create_oval(px - r, py - r, px + r, py + r,
+                                fill=MAZE_PLAYER, outline=MAZE_PLAYER_OUTLINE)
 
     def move(self, dr, dc):
         new_row = self.player_pos[0] + dr
@@ -776,40 +721,25 @@ class MazeGame:
                 self.moves_var.set(f"🎉 ГОТОВО! Ходов: {self.moves}")
                 self.window.after(1000, self._on_win)
 
-    def _on_win(self):
-        self.window.destroy()
-        self.on_win()
-
-    def _on_lose(self):
-        self.window.destroy()
-        self.on_lose()
 
 
-class SafeCrackGame:
+
+class SafeCrackGame(MinigameBase):
     """Мини-игра: Угадай число"""
 
     def __init__(self, parent, target_name, on_win, on_lose, theme):
-        self.on_win = on_win
-        self.on_lose = on_lose
-        self.theme = theme
+        super().__init__(parent, target_name, on_win, on_lose, theme)
 
-        self.window = tk.Toplevel(parent)
-        self.window.title("⚠ СЕЙФ!")
-        self.window.geometry("420x480")
-        self.window.configure(bg='#0a0a1a')
-        self.window.resizable(False, False)
-        self.window.grab_set()
-        self.window.protocol("WM_DELETE_WINDOW", self._on_lose)
-        self._center_window()
+        self._make_window("⚠ СЕЙФ!", "420x480", theme['bg_dark'])
 
         tk.Label(self.window,
                  text=f"🔐 СЕЙФ {target_name} 🔐",
-                 bg='#0a0a1a', fg='#4488ff',
+                 bg=theme['bg_dark'], fg=theme['accent'],
                  font=('Consolas', 14, 'bold')).pack(pady=(15, 5))
 
         tk.Label(self.window,
                  text="Угадайте число 1-100!\n↑ больше | ↓ меньше",
-                 bg='#0a0a1a', fg='#8888aa',
+                 bg=theme['bg_dark'], fg=theme['fg_dim'],
                  font=('Consolas', 10)).pack(pady=(0, 15))
 
         self.secret_number = random.randint(1, 100)
@@ -818,17 +748,17 @@ class SafeCrackGame:
         self.attempts_var = tk.StringVar(value=f"Попыток: {self.attempts_left}")
         tk.Label(self.window,
                  textvariable=self.attempts_var,
-                 bg='#0a0a1a', fg='#ffcc00',
+                 bg=theme['bg_dark'], fg=theme['warning'],
                  font=('Consolas', 12)).pack(pady=5)
 
-        input_frame = tk.Frame(self.window, bg='#0a0a1a')
+        input_frame = tk.Frame(self.window, bg=theme['bg_dark'])
         input_frame.pack(pady=15)
 
         self.number_var = tk.StringVar()
         self.entry = tk.Entry(input_frame,
                               textvariable=self.number_var,
-                              bg='#111133', fg='#00ff00',
-                              insertbackground='#00ff00',
+                              bg=theme['bg_medium'], fg=theme['accent'],
+                              insertbackground=theme['accent'],
                               font=('Consolas', 24, 'bold'),
                               width=8, justify='center')
         self.entry.pack(pady=10)
@@ -836,14 +766,14 @@ class SafeCrackGame:
         self.entry.bind('<Return>', lambda e: self.try_number())
 
         tk.Button(input_frame, text="🔓 ПРОВЕРИТЬ",
-                  bg='#223366', fg='#88aaff',
+                  bg=theme['bg_light'], fg=theme['fg_main'],
                   font=('Consolas', 12, 'bold'),
                   command=self.try_number).pack(pady=10)
 
         self.hint_var = tk.StringVar(value="Введите число...")
         self.hint_label = tk.Label(self.window,
                                    textvariable=self.hint_var,
-                                   bg='#0a0a1a', fg='#ffffff',
+                                   bg=theme['bg_dark'], fg=theme['fg_main'],
                                    font=('Consolas', 14, 'bold'))
         self.hint_label.pack(pady=10)
 
@@ -851,34 +781,28 @@ class SafeCrackGame:
         self.range_var = tk.StringVar(value=f"Диапазон: {self.range_min} — {self.range_max}")
         tk.Label(self.window,
                  textvariable=self.range_var,
-                 bg='#0a0a1a', fg='#666688',
+                 bg=theme['bg_dark'], fg=theme['fg_dim'],
                  font=('Consolas', 11)).pack(pady=5)
 
         self.guesses = []
         self.history_var = tk.StringVar(value="")
         tk.Label(self.window,
                  textvariable=self.history_var,
-                 bg='#0a0a1a', fg='#555577',
+                 bg=theme['bg_dark'], fg=theme['fg_dim'],
                  font=('Consolas', 9)).pack(pady=10)
 
-    def _center_window(self):
-        self.window.update_idletasks()
-        w, h = self.window.winfo_width(), self.window.winfo_height()
-        x = (self.window.winfo_screenwidth() - w) // 2
-        y = (self.window.winfo_screenheight() - h) // 2
-        self.window.geometry(f"+{x}+{y}")
 
     def try_number(self):
         try:
             guess = int(self.number_var.get().strip())
         except ValueError:
             self.hint_var.set("⚠ Введите число!")
-            self.hint_label.config(fg='#ff4444')
+            self.hint_label.config(fg=theme['error'])
             return
 
         if guess < 1 or guess > 100:
             self.hint_var.set("⚠ От 1 до 100!")
-            self.hint_label.config(fg='#ff4444')
+            self.hint_label.config(fg=theme['error'])
             return
 
         self.attempts_left -= 1
@@ -889,78 +813,63 @@ class SafeCrackGame:
 
         if guess == self.secret_number:
             self.hint_var.set(f"🎉 ВЕРНО! Код: {self.secret_number}")
-            self.hint_label.config(fg='#00ff00')
+            self.hint_label.config(fg=theme['accent'])
             self.entry.config(state=tk.DISABLED)
             self.window.after(1200, self._on_win)
             return
 
         if guess < self.secret_number:
             self.hint_var.set(f"↑ БОЛЬШЕ чем {guess}!")
-            self.hint_label.config(fg='#44aaff')
+            self.hint_label.config(fg=theme['data'])
             self.range_min = max(self.range_min, guess + 1)
         else:
             self.hint_var.set(f"↓ МЕНЬШЕ чем {guess}!")
-            self.hint_label.config(fg='#ffaa44')
+            self.hint_label.config(fg=theme['warning'])
             self.range_max = min(self.range_max, guess - 1)
 
         self.range_var.set(f"Диапазон: {self.range_min} — {self.range_max}")
 
         if self.attempts_left <= 0:
             self.hint_var.set(f"💀 Код был: {self.secret_number}")
-            self.hint_label.config(fg='#ff4444')
+            self.hint_label.config(fg=theme['error'])
             self.entry.config(state=tk.DISABLED)
             self.window.after(1500, self._on_lose)
 
-    def _on_win(self):
-        self.window.destroy()
-        self.on_win()
-
-    def _on_lose(self):
-        self.window.destroy()
-        self.on_lose()
 
 
-class MathGame:
+
+class MathGame(MinigameBase):
     """Мини-игра: Реши пример"""
 
     def __init__(self, parent, target_name, on_win, on_lose, theme):
-        self.on_win = on_win
-        self.on_lose = on_lose
-        self.theme = theme
+        super().__init__(parent, target_name, on_win, on_lose, theme)
         self.timer_id = None
         self.problems_solved = 0
         self.problems_needed = 5
 
-        self.window = tk.Toplevel(parent)
-        self.window.title("⚠ КРИПТОГРАФИЧЕСКАЯ ЗАЩИТА!")
-        self.window.geometry("450x400")
-        self.window.configure(bg='#0a100a')
-        self.window.resizable(False, False)
-        self.window.grab_set()
-        self.window.protocol("WM_DELETE_WINDOW", self._on_lose)
-        self._center_window()
+        self._make_window("⚠ КРИПТОГРАФИЧЕСКАЯ ЗАЩИТА!", "450x400", theme['bg_dark'])
 
         tk.Label(self.window,
                  text=f"🧮 КРИПТОЗАЩИТА {target_name} 🧮",
-                 bg='#0a100a', fg='#44ff44',
+                 bg=theme['bg_dark'], fg=theme['fg_main'],
                  font=('Consolas', 14, 'bold')).pack(pady=(15, 5))
 
         tk.Label(self.window,
                  text=f"Решите {self.problems_needed} примеров!\nПростая математика, не бойтесь 😊",
-                 bg='#0a100a', fg='#88aa88',
+                 bg=theme['bg_dark'], fg=theme['fg_dim'],
                  font=('Consolas', 10)).pack(pady=(0, 10))
 
         self.progress_var = tk.StringVar(value=f"Решено: 0 / {self.problems_needed}")
         tk.Label(self.window,
                  textvariable=self.progress_var,
-                 bg='#0a100a', fg='#ffcc00',
+                 bg=theme['bg_dark'], fg=theme['warning'],
                  font=('Consolas', 11)).pack(pady=5)
 
         self.time_left = 45
         self.timer_var = tk.StringVar(value=f"⏱ {self.time_left} сек")
         self.timer_label = tk.Label(self.window,
                                     textvariable=self.timer_var,
-                                    bg='#0a100a', fg='#aaaaaa',
+                                    bg=theme['bg_dark'], fg=theme['fg_dim'],
                                     font=('Consolas', 12))
         self.timer_label.pack(pady=5)
 
@@ -968,7 +877,7 @@ class MathGame:
         self.problem_var = tk.StringVar()
         self.problem_label = tk.Label(self.window,
                                       textvariable=self.problem_var,
-                                      bg='#001100', fg='#00ff00',
+                                      bg=theme['bg_medium'], fg=theme['accent'],
                                       font=('Consolas', 28, 'bold'),
                                       padx=30, pady=15)
         self.problem_label.pack(pady=15)
@@ -977,8 +886,8 @@ class MathGame:
         self.answer_var = tk.StringVar()
         self.entry = tk.Entry(self.window,
                               textvariable=self.answer_var,
-                              bg='#000000', fg='#00ff00',
-                              insertbackground='#00ff00',
+                              bg=theme['bg_medium'], fg=theme['accent'],
+                              insertbackground=theme['accent'],
                               font=('Consolas', 20, 'bold'),
                               width=10, justify='center')
         self.entry.pack(pady=10)
@@ -986,25 +895,19 @@ class MathGame:
         self.entry.bind('<Return>', lambda e: self.check_answer())
 
         tk.Button(self.window, text="✓ ОТВЕТ",
-                  bg='#114411', fg='#88ff88',
+                  bg=theme['bg_light'], fg=theme['accent'],
                   font=('Consolas', 12, 'bold'),
                   command=self.check_answer).pack(pady=10)
 
         self.result_var = tk.StringVar(value="")
         tk.Label(self.window,
                  textvariable=self.result_var,
-                 bg='#0a100a', fg='#ffffff',
+                 bg=theme['bg_dark'], fg=theme['fg_main'],
                  font=('Consolas', 11)).pack(pady=5)
 
         self._generate_problem()
         self._tick()
 
-    def _center_window(self):
-        self.window.update_idletasks()
-        w, h = self.window.winfo_width(), self.window.winfo_height()
-        x = (self.window.winfo_screenwidth() - w) // 2
-        y = (self.window.winfo_screenheight() - h) // 2
-        self.window.geometry(f"+{x}+{y}")
 
     def _generate_problem(self):
         """Генерирует простой пример по твоим правилам"""
@@ -1049,7 +952,7 @@ class MathGame:
         self.time_left -= 1
         self.timer_var.set(f"⏱ {self.time_left} сек")
         if self.time_left <= 10:
-            self.timer_label.config(fg='#ff4444')
+            self.timer_label.config(fg=theme['error'])
         self.timer_id = self.window.after(1000, self._tick)
 
     def check_answer(self):
@@ -1078,13 +981,7 @@ class MathGame:
             self.answer_var.set("")
             self._generate_problem()
 
-    def _on_win(self):
-        self.window.destroy()
-        self.on_win()
 
-    def _on_lose(self):
-        self.window.destroy()
-        self.on_lose()
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -1107,6 +1004,13 @@ THEMES = {
         "matrix_fg": "#005500",
         "graph_line": "#00ff00",
         "graph_fill": "#003300",
+        "danger_bg": "#1a0d0d",
+        "info": "#00cccc",
+        "magic": "#cc66ff",
+        "muted": "#666666",
+        "alert": "#ff8800",
+        "glitch_alt": "#cc44cc",
+        "matrix_bg": "#020502",
     },
     "cyberpunk": {
         "name": "Cyberpunk",
@@ -1123,6 +1027,13 @@ THEMES = {
         "matrix_fg": "#440066",
         "graph_line": "#ff00ff",
         "graph_fill": "#330033",
+        "danger_bg": "#1a0510",
+        "info": "#00ffff",
+        "magic": "#ff66ff",
+        "muted": "#775577",
+        "alert": "#ffaa00",
+        "glitch_alt": "#8800aa",
+        "matrix_bg": "#05020a",
     },
     "blood": {
         "name": "Blood Red",
@@ -1139,6 +1050,13 @@ THEMES = {
         "matrix_fg": "#330000",
         "graph_line": "#ff0000",
         "graph_fill": "#330000",
+        "danger_bg": "#1a0505",
+        "info": "#ff8888",
+        "magic": "#ff66cc",
+        "muted": "#775555",
+        "alert": "#ffaa00",
+        "glitch_alt": "#aa2222",
+        "matrix_bg": "#0a0202",
     },
     "ocean": {
         "name": "Ocean Blue",
@@ -1155,6 +1073,13 @@ THEMES = {
         "matrix_fg": "#002244",
         "graph_line": "#00aaff",
         "graph_fill": "#001133",
+        "danger_bg": "#0a0510",
+        "info": "#00ccff",
+        "magic": "#aa88ff",
+        "muted": "#557788",
+        "alert": "#ffaa44",
+        "glitch_alt": "#3388cc",
+        "matrix_bg": "#02050a",
     },
     "amber": {
         "name": "Retro Amber",
@@ -1171,6 +1096,13 @@ THEMES = {
         "matrix_fg": "#332200",
         "graph_line": "#ffaa00",
         "graph_fill": "#332200",
+        "danger_bg": "#1a0f00",
+        "info": "#ffcc66",
+        "magic": "#ff88cc",
+        "muted": "#776644",
+        "alert": "#ff8800",
+        "glitch_alt": "#cc8844",
+        "matrix_bg": "#0a0700",
     },
 }
 
@@ -1218,14 +1150,8 @@ class HackersTerminal:
         self.target_order = {}  # {target_name: order_number}
         self.click_count = 0
 
-        # Настройки
-        self.current_theme_name = "matrix"
-        self.theme = THEMES[self.current_theme_name]
-        self.minigame_chance = 20
-        self.glitch_enabled = True
-        self.show_calculations = True
-        self.attack_mode = "normal"  # stealth, normal, aggressive
-
+        # Настройки: значения по умолчанию ставит load_settings() —
+        # до него self.theme не существует, и это нормально.
         self.load_settings()
         self.load_player_data()  # Загружаем профиль игрока
 
@@ -1490,7 +1416,7 @@ class HackersTerminal:
         self.splash = tk.Toplevel(self.root)
         self.splash.title("")
         self.splash.geometry("700x400")
-        self.splash.configure(bg='#000000')
+        self.splash.configure(bg=self.theme['bg_dark'])
         self.splash.resizable(False, False)
         self.splash.overrideredirect(True)
 
@@ -1501,15 +1427,15 @@ class HackersTerminal:
 
         logo = random.choice(ASCII_LOGOS)
         tk.Label(self.splash, text=logo,
-                 bg='#000000', fg=self.theme['accent'],
+                 bg=self.theme['bg_dark'], fg=self.theme['accent'],
                  font=('Consolas', 10), justify='left').pack(pady=20)
 
         tk.Label(self.splash, text="SECURITY EXPLOIT KIT v5.0.0",
-                 bg='#000000', fg=self.theme['fg_main'],
+                 bg=self.theme['bg_dark'], fg=self.theme['fg_main'],
                  font=('Consolas', 16, 'bold')).pack()
 
         tk.Label(self.splash, text="Загрузка...",
-                 bg='#000000', fg=self.theme['fg_dim'],
+                 bg=self.theme['bg_dark'], fg=self.theme['fg_dim'],
                  font=('Consolas', 10)).pack(pady=10)
 
         self.splash_progress = ttk.Progressbar(self.splash, mode='determinate', length=400)
@@ -1536,35 +1462,97 @@ class HackersTerminal:
         self.splash_progress['value'] = progress
         self.splash.after(25, lambda: self._animate_splash(progress + 2))
 
-    def apply_theme(self):
-        self.root.configure(bg=self.theme['bg_dark'])
+    def apply_theme(self, force_rebuild=False):
+        """Применяет текущую тему.
+
+        force_rebuild=True — полностью перерисовывает интерфейс (горячая смена
+        темы из настроек/консоли). Без него — только корневое окно, как раньше.
+        """
+        if force_rebuild and getattr(self, 'main_frame', None) is not None:
+            self._rebuild_ui()
+
+    def _rebuild_ui(self):
+        """Пересобирает интерфейс под новую тему, сохраняя состояние.
+
+        Пересоздаём виджеты, затем переносим текст лога, прогресс, статус,
+        выбор целей и режим атаки — снаружи ничего не должно «прыгнуть».
+        """
+        log_backup = self.log_text.get(1.0, tk.END)
+        progress_val = self.progress_var.get()
+        progress_text = self.progress_percent.cget('text')
+        status_text = self.status_var.get()
+        selected = [self.target_listbox.get(i) for i in self.target_listbox.curselection()]
+
+        # сохраняем порядок целей и очищаем старый интерфейс
+        ordered = dict(self.target_order)
+        self.main_frame.destroy()
+
+        self.create_widgets()
+
+        # восстанавливаем состояние
+        self.log_text.delete(1.0, tk.END)
+        self.log_text.insert(1.0, log_backup)
+        self.log_text.see(tk.END)
+        self.progress_var.set(progress_val)
+        self.progress_percent.config(text=progress_text)
+        self.status_var.set(status_text)
+        self.mode_var.set(self.attack_mode)
+
+        self.target_order = ordered
+        if ordered:
+            self.click_count = max(ordered.values())
+            self._renumber_targets()
+        for i in range(self.target_listbox.size()):
+            item = self.target_listbox.get(i)
+            base = item.split('] ', 1)[1] if item.startswith('[') and '] ' in item else item
+            if base in selected:
+                self.target_listbox.selection_set(i)
+        self.selected_var.set(f"В очереди: {len(self.target_order)}")
 
     def load_settings(self):
-        """Загрузка настроек из файла"""
+        """Загрузка настроек из файла.
+
+        Всё валидируется по одному полю: битое поле откатывается к дефолту,
+        а не обнуляет весь файл настроек, как было раньше.
+        """
+        defaults = {
+            'theme': 'matrix',
+            'minigame_chance': 20,
+            'glitch_enabled': True,
+            'show_calculations': True,
+            'attack_mode': 'normal',
+        }
+        data = {}
+        settings_file = Path.home() / ".hacker_settings.json"
         try:
-            settings_file = Path.home() / ".hacker_settings.json"
             if settings_file.exists():
-                with open(settings_file, 'r') as f:
-                    data = json.load(f)
-                    self.current_theme_name = data.get('theme', 'matrix')
-                    self.minigame_chance = data.get('minigame_chance', 20)
-                    self.glitch_enabled = data.get('glitch_enabled', True)
-                    self.show_calculations = data.get('show_calculations', True)
-                    self.attack_mode = data.get('attack_mode', 'normal')
+                with open(settings_file, 'r', encoding='utf-8') as f:
+                    loaded = json.load(f)
+                if isinstance(loaded, dict):
+                    data = loaded
+        except (OSError, ValueError):
+            # файл не читается / битый JSON — работаем на дефолтах
+            data = {}
 
-                    # Проверяем что тема существует
-                    if self.current_theme_name not in THEMES:
-                        self.current_theme_name = 'matrix'
+        theme_name = data.get('theme', defaults['theme'])
+        if theme_name not in THEMES:
+            theme_name = defaults['theme']
 
-                    self.theme = THEMES[self.current_theme_name]
-        except Exception:
-            # Если ошибка — используем значения по умолчанию
-            self.current_theme_name = "matrix"
-            self.theme = THEMES[self.current_theme_name]
-            self.minigame_chance = 20
-            self.glitch_enabled = True
-            self.show_calculations = True
-            self.attack_mode = "normal"
+        chance = data.get('minigame_chance', defaults['minigame_chance'])
+        if not isinstance(chance, (int, float)) or isinstance(chance, bool):
+            chance = defaults['minigame_chance']
+        chance = max(10, min(100, int(chance)))
+
+        mode = data.get('attack_mode', defaults['attack_mode'])
+        if mode not in ('stealth', 'normal', 'aggressive'):
+            mode = defaults['attack_mode']
+
+        self.current_theme_name = theme_name
+        self.theme = THEMES[theme_name]
+        self.minigame_chance = chance
+        self.attack_mode = mode
+        self.glitch_enabled = bool(data.get('glitch_enabled', defaults['glitch_enabled']))
+        self.show_calculations = bool(data.get('show_calculations', defaults['show_calculations']))
 
 
     def save_settings(self):
@@ -1585,21 +1573,7 @@ class HackersTerminal:
 
     def load_player_data(self):
         """Загрузка профиля игрока"""
-        default = {
-            'name': '',
-            'money': 0,
-            'total_earned': 0,
-            'hacks_completed': 0,
-            'hacks_failed': 0,
-            'data_stolen_gb': 0.0,
-            'skill_points': 0,
-            'skills': {
-                'hacking_speed': 1,
-                'minigame_difficulty': 1,
-                'earning_rate': 1,
-                'stealth': 1,
-            },
-        }
+        default = self._default_player_data()
         try:
             player_file = Path.home() / ".hacker_profile.json"
             if player_file.exists():
@@ -1624,13 +1598,37 @@ class HackersTerminal:
             pass
 
     def delete_player_data(self):
-        """Удаление профиля"""
+        """Удаление профиля: файл + данные в памяти.
+
+        Раньше метод не вызывался ниоткуда — теперь это кнопка
+        «Сброс профиля» в окне настроек.
+        """
         try:
             player_file = Path.home() / ".hacker_profile.json"
             if player_file.exists():
                 player_file.unlink()
-        except Exception:
+        except OSError:
             pass
+        self.player_data = self._default_player_data()
+        self._update_balance_display()
+
+    @staticmethod
+    def _default_player_data():
+        return {
+            'name': '',
+            'money': 0,
+            'total_earned': 0,
+            'hacks_completed': 0,
+            'hacks_failed': 0,
+            'data_stolen_gb': 0.0,
+            'skill_points': 0,
+            'skills': {
+                'hacking_speed': 1,
+                'minigame_difficulty': 1,
+                'earning_rate': 1,
+                'stealth': 1,
+            },
+        }
 
     def ask_player_name(self):
         """Запрос имени при первом запуске"""
@@ -1673,7 +1671,9 @@ class HackersTerminal:
         self.log_message("═" * 50, "header")
         self.log_message(f"  Баланс: ${self.player_data['money']}", "data")
         self.log_message(f"  Заработано: ${self.player_data['total_earned']}", "data")
-        self.log_message(f"  Взломов: {self.player_data['hacks_completed']}", "info")
+        self.log_message(f"  Взломов: {self.player_data['hacks_completed']}  "
+                         f"провалов: {self.player_data['hacks_failed']}", "info")
+        self.log_message(f"  Данных добыто: {self.player_data['data_stolen_gb']:.1f} GB", "info")
         self.log_message("═" * 50, "header")
 
     def _update_balance_display(self):
@@ -1684,9 +1684,13 @@ class HackersTerminal:
             # Обновляем профиль в центре
             self.profile_name.config(text=f"👤 {self.player_data.get('name', 'Анон')}")
             self.profile_money.config(text=f"💵 ${self.player_data.get('money', 0)}")
-            self.profile_stats.config(text=f"Взломов: {self.player_data.get('hacks_completed', 0)}")
+            self.profile_stats.config(
+                text=(f"Взломов: {self.player_data.get('hacks_completed', 0)}  "
+                      f"провалов: {self.player_data.get('hacks_failed', 0)}\n"
+                      f"Данных: {self.player_data.get('data_stolen_gb', 0):.1f} GB"))
             self.profile_sp.config(text=f"SP: {self.player_data.get('skill_points', 0)}")
-        except:
+        except (AttributeError, tk.TclError):
+            # интерфейс ещё не создан или окно уже закрыто
             pass
 
     def open_skills_window(self):
@@ -1764,7 +1768,7 @@ class HackersTerminal:
                           command=upgrade).pack()
             else:
                 tk.Label(right, text="MAX",
-                         bg=self.theme['bg_medium'], fg='#00ff00',
+                         bg=self.theme['bg_medium'], fg=self.theme['accent'],
                          font=('Consolas', 9, 'bold')).pack()
 
         tk.Label(skills, text="\nНавыки за SP и $",
@@ -1774,6 +1778,7 @@ class HackersTerminal:
     def create_widgets(self):
         main = tk.Frame(self.root, bg=self.theme['bg_dark'])
         main.pack(fill=tk.BOTH, expand=True, padx=8, pady=8)
+        self.main_frame = main  # нужен для горячей смены темы
 
         # === Верхняя панель ===
         top = tk.Frame(main, bg=self.theme['bg_dark'])
@@ -1861,7 +1866,7 @@ class HackersTerminal:
                   command=self.open_history).pack(side=tk.LEFT, padx=3)
 
         tk.Button(btn_frame, text="⏻",
-                  bg='#1a0d0d', fg='#ff4444',
+                  bg=self.theme['danger_bg'], fg=self.theme['error'],
                   font=('Consolas', 9),
                   command=self.on_close).pack(side=tk.LEFT, padx=3)
 
@@ -1941,12 +1946,12 @@ class HackersTerminal:
         tk.Frame(left, bg=self.theme['bg_dark'], height=10).pack()
 
         tk.Button(left, text="◆ ВЗЛОМАТЬ ◆",
-                  bg='#1a0d0d', fg='#ff3333',
+                  bg=self.theme['danger_bg'], fg=self.theme['error'],
                   font=('Consolas', 12, 'bold'),
                   command=self.start_hacking).pack(fill=tk.X, pady=2)
 
         tk.Button(left, text="⚠ Замести следы",
-                  bg='#1a0d0d', fg='#ff6666',
+                  bg=self.theme['danger_bg'], fg=self.theme['error'],
                   font=('Consolas', 10),
                   command=self.emergency_exit).pack(fill=tk.X, pady=2)
 
@@ -1954,6 +1959,18 @@ class HackersTerminal:
         center = tk.Frame(middle, bg=self.theme['bg_dark'], width=280)
         center.pack(side=tk.LEFT, fill=tk.BOTH, padx=(0, 6))
         center.pack_propagate(False)
+
+        # Карта атак: точки, по которым «бьёт» симуляция
+        tk.Label(center, text="◆ КАРТА АТАК",
+                 bg=self.theme['bg_dark'], fg=self.theme['fg_main'],
+                 font=('Consolas', 11, 'bold')).pack(anchor='w', pady=(0, 5))
+
+        self.map_canvas = tk.Canvas(center, width=260, height=110,
+                                    bg=self.theme['matrix_bg'],
+                                    highlightthickness=1,
+                                    highlightbackground=self.theme['border'])
+        self.map_canvas.pack(fill=tk.X, pady=(0, 8))
+        self._draw_map_grid()
 
         # Матрица
         tk.Label(center, text="◆ DATA STREAM",
@@ -1964,7 +1981,7 @@ class HackersTerminal:
         matrix_cont.pack(fill=tk.BOTH, expand=True, pady=(0, 6))
 
         self.matrix_text = tk.Text(matrix_cont,
-                                   bg='#020502', fg=self.theme['matrix_fg'],
+                                   bg=self.theme['matrix_bg'], fg=self.theme['matrix_fg'],
                                    font=('Consolas', 8), width=30,
                                    borderwidth=0, highlightthickness=0)
         self.matrix_text.pack(fill=tk.BOTH, expand=True, padx=2, pady=2)
@@ -2007,7 +2024,7 @@ class HackersTerminal:
         self.profile_sp = tk.Label(profile_frame,
                                    text=f"SP: {self.player_data.get('skill_points', 0)}",
                                    bg=self.theme['bg_dark'],
-                                   fg='#ffcc00',
+                                   fg=self.theme['warning'],
                                    font=('Consolas', 9),
                                    anchor='w')
         self.profile_sp.pack(fill=tk.X, padx=5, pady=3)
@@ -2044,12 +2061,12 @@ class HackersTerminal:
         self.log_text.tag_config("success", foreground=self.theme['accent'])
         self.log_text.tag_config("warning", foreground=self.theme['warning'])
         self.log_text.tag_config("error", foreground=self.theme['error'])
-        self.log_text.tag_config("header", foreground='#00cccc')
-        self.log_text.tag_config("stupid", foreground='#cc66ff')
+        self.log_text.tag_config("header", foreground=self.theme['info'])
+        self.log_text.tag_config("stupid", foreground=self.theme['magic'])
         self.log_text.tag_config("data", foreground=self.theme['data'])
         self.log_text.tag_config("fast", foreground=self.theme['fg_dim'])
-        self.log_text.tag_config("calc", foreground='#666666')
-        self.log_text.tag_config("minigame", foreground='#ff8800')
+        self.log_text.tag_config("calc", foreground=self.theme['muted'])
+        self.log_text.tag_config("minigame", foreground=self.theme['alert'])
 
         tk.Button(log_frame, text="💾 Экспорт",
                   bg=self.theme['bg_medium'], fg=self.theme['fg_main'],
@@ -2206,10 +2223,61 @@ class HackersTerminal:
             self.custom_var.set("")
             self.log_message(f"  + Добавлено: {target}", "success")
 
+    def _draw_map_grid(self):
+        """Рисует сетку «карты мира» (раньше карты не было вообще)."""
+        c = self.map_canvas
+        c.delete("all")
+        w = int(c.cget('width'))
+        h = int(c.cget('height'))
+        step = 20
+        for x in range(0, w, step):
+            c.create_line(x, 0, x, h, fill=self.theme['bg_medium'])
+        for y in range(0, h, step):
+            c.create_line(0, y, w, y, fill=self.theme['bg_medium'])
+
+    def _flash_attack_point(self, x, y):
+        """Мигающая точка атаки на карте.
+
+        Метод вызывался из hacking_simulation(), но не был определён —
+        ошибка молча съедалась safe_call(). Теперь карта реально мигает.
+        """
+        if getattr(self, 'map_canvas', None) is None:
+            return
+
+        c = self.map_canvas
+        w = int(c.cget('width'))
+        h = int(c.cget('height'))
+        x = max(4, min(w - 4, int(x)))
+        y = max(4, min(h - 4, int(y)))
+
+        dot = c.create_oval(x - 4, y - 4, x + 4, y + 4,
+                            fill=self.theme['error'],
+                            outline=self.theme['accent'], width=1)
+        ring = c.create_oval(x - 4, y - 4, x + 4, y + 4,
+                             outline=self.theme['accent'], width=1)
+
+        # кольцо расходится и всё гаснет — «эхо удара»
+        def expand(step=0):
+            if getattr(self, 'map_canvas', None) is None or not c.winfo_exists():
+                return
+            if step > 6:
+                c.delete(dot)
+                c.delete(ring)
+                return
+            r = 4 + step * 4
+            c.coords(ring, x - r, y - r, x + r, y + r)
+            c.itemconfigure(ring, outline=self.theme['warning'])
+            c.after(60, lambda: expand(step + 1))
+
+        expand()
+        c.after(1200, lambda: c.delete(dot) if c.winfo_exists() else None)
+
     def safe_call(self, func, *args):
+        """Выполнить func в потоке Tk (безопасно из фоновых потоков)."""
         try:
             self.root.after(0, func, *args)
-        except:
+        except tk.TclError:
+            # окно уже уничтожено — планировать нечего
             pass
 
     def log_message(self, message, msg_type="info"):
@@ -2234,13 +2302,13 @@ class HackersTerminal:
     def _do_log(self, msg, msg_type):
         try:
             self.log_message(msg, msg_type)
-        except:
+        except tk.TclError:
             pass
 
     def _do_status(self, text):
         try:
             self.status_var.set(text)
-        except:
+        except (AttributeError, tk.TclError):
             pass
 
     def _do_progress(self, val, text=None):
@@ -2248,7 +2316,7 @@ class HackersTerminal:
             self.progress_var.set(val)
             if text:
                 self.progress_percent.config(text=text)
-        except:
+        except (AttributeError, tk.TclError):
             pass
 
     def _do_matrix(self, line):
@@ -2257,7 +2325,7 @@ class HackersTerminal:
             count = int(self.matrix_text.index('end-1c').split('.')[0])
             if count > 80:
                 self.matrix_text.delete(f"{count - 1}.0", tk.END)
-        except:
+        except (AttributeError, tk.TclError, ValueError):
             pass
 
     def _generate_calc(self):
@@ -2376,7 +2444,7 @@ class HackersTerminal:
         while self.matrix_running:
             for label in self.status_labels:
                 color = random.choice([self.theme['fg_main'], self.theme['accent'],
-                                       self.theme['warning'], '#cc44cc'])
+                                       self.theme['warning'], self.theme['glitch_alt']])
                 self.safe_call(lambda l=label, c=color: l.config(fg=c))
             time.sleep(random.uniform(2, 4))
 
@@ -2389,7 +2457,7 @@ class HackersTerminal:
                         colors = ['#100000', '#001000', '#000010']
                         self.log_text.config(bg=random.choice(colors))
                         self.root.after(50, lambda: self.log_text.config(bg=orig))
-                    except:
+                    except tk.TclError:
                         pass
                 self.safe_call(glitch)
             time.sleep(0.5)
@@ -2404,25 +2472,36 @@ class HackersTerminal:
     # ═══════════════════════════════════════════════════════════════════════════
 
     def _get_mode_params(self):
-        """Параметры в зависимости от режима"""
-        if self.attack_mode == "stealth":
-            return {
-                'delay_mult': 2.0,
-                'minigame_mult': 0.3,
-                'log_detail': 'low',
-            }
-        elif self.attack_mode == "aggressive":
-            return {
-                'delay_mult': 0.3,
-                'minigame_mult': 2.0,
-                'log_detail': 'high',
-            }
+        """Параметры в зависимости от режима и прокачанных навыков.
+
+        Ранее навыки 'hacking_speed', 'stealth' и 'minigame_difficulty'
+        покупались за деньги/SP, но НЕ ЧИТАЛИСЬ нигде — теперь влияют.
+        """
+        mode = self.attack_mode
+        if mode == "stealth":
+            params = {'delay_mult': 2.0, 'minigame_mult': 0.3, 'log_detail': 'low'}
+        elif mode == "aggressive":
+            params = {'delay_mult': 0.3, 'minigame_mult': 2.0, 'log_detail': 'high'}
         else:  # normal
-            return {
-                'delay_mult': 1.0,
-                'minigame_mult': 1.0,
-                'log_detail': 'medium',
-            }
+            params = {'delay_mult': 1.0, 'minigame_mult': 1.0, 'log_detail': 'medium'}
+
+        skills = self.player_data.get('skills', {})
+
+        # Скорость взлома: каждый уровень -8% задержки (максимум -60%)
+        speed_lvl = max(0, skills.get('hacking_speed', 1) - 1)
+        params['delay_mult'] *= max(0.4, 1.0 - 0.08 * speed_lvl)
+
+        # Лёгкость мини-игр: каждый уровень -6% шанса (максимум -50%)
+        diff_lvl = max(0, skills.get('minigame_difficulty', 1) - 1)
+        params['minigame_mult'] *= max(0.5, 1.0 - 0.06 * diff_lvl)
+
+        # Скрытность: каждый уровень -5% шанса «спалиться» (максимум -45%)
+        stealth_lvl = max(0, skills.get('stealth', 1) - 1)
+        params['detect_chance'] = max(0.02, 0.10 - 0.01 * stealth_lvl)
+        params['minigame_mult'] *= (1.0 - 0.05 * stealth_lvl)
+
+        params['mode'] = mode
+        return params
 
     def hacking_simulation(self):
         self.is_hacking = True
@@ -2527,21 +2606,30 @@ class HackersTerminal:
             self.safe_call(self._do_progress, phase_progress, f"{int(phase_progress)}%")
 
             # ★ МИНИ-ИГРА ★
-            effective_chance = self.minigame_chance * params['minigame_mult']
+            effective_chance = max(0, min(100, self.minigame_chance * params['minigame_mult']))
             if not self.is_hacking:
                 break
 
             if random.randint(1, 100) <= effective_chance:
                 won = self._trigger_minigame(target_name)
+                if not self.is_hacking:
+                    break
                 if won:
-                    self.safe_call(self._do_log, f"  ✓ Защита обойдена!", "success")
+                    self.safe_call(self._do_log, "  ✓ Защита обойдена!", "success")
                 else:
-                    self.safe_call(self._do_log, f"  ✗ Провал! Пропускаю...", "error")
+                    # Провал — цель НЕ взломана: раньше она всё равно
+                    # засчитывалась успешной, а hacks_failed не рос.
+                    self.safe_call(self._do_log, "  ✗ Провал! Цель ускользнула...", "error")
                     failed += 1
                     skipped = True
                 time.sleep(0.3)
 
             if skipped or not self.is_hacking:
+                if skipped:
+                    self.safe_call(
+                        self._do_log,
+                        f"  ↩ {target_name}: защита не пройдена, цель пропущена",
+                        "error")
                 phase_progress = base_progress + (100 / total)
                 self.safe_call(self._do_progress, phase_progress, f"{int(min(phase_progress, 99))}%")
                 continue
@@ -2638,17 +2726,24 @@ class HackersTerminal:
                 self.safe_call(self._do_log, f"  Провалено: {failed}/{total}", "error")
             self.safe_call(self._do_log, "═" * 50, "header")
 
+            if completed > 0 or failed > 0:
+                # Провалы теперь тоже учитываются в профиле (раньше поле
+                # hacks_failed писалось в файл, но никогда не менялось).
+                self.player_data['hacks_failed'] += failed
+                self.save_player_data()
+
             if completed > 0:
                 # Начисление денег и опыта
                 base_reward = random.randint(50, 200) * completed
                 earning_skill = self.player_data['skills']['earning_rate']
                 multiplier = 1 + (earning_skill - 1) * 0.15
                 total_reward = int(base_reward * multiplier)
+                stolen_gb = random.uniform(0.5, 50) * completed
 
                 self.player_data['money'] += total_reward
                 self.player_data['total_earned'] += total_reward
                 self.player_data['hacks_completed'] += completed
-                self.player_data['data_stolen_gb'] += random.uniform(0.5, 50) * completed
+                self.player_data['data_stolen_gb'] += stolen_gb
                 self.player_data['skill_points'] += completed
                 self.save_player_data()
 
@@ -2664,6 +2759,7 @@ class HackersTerminal:
 
                 self.safe_call(self._do_log, "", "info")
                 self.safe_call(self._do_log, "  Украдено:", "success")
+                self.safe_call(self._do_log, f"    • Данных: {stolen_gb:.1f} GB", "data")
                 self.safe_call(self._do_log, f"    • Паролей: {random.randint(1000, 999999)}", "data")
                 self.safe_call(self._do_log, f"    • Email: {random.randint(5000, 999999)}", "data")
                 self.safe_call(self._do_log, f"    • Котиков: {random.randint(1, 42)} 🐱", "data")
@@ -2824,7 +2920,11 @@ class HackersTerminal:
             if args[0] in THEMES:
                 self.current_theme_name = args[0]
                 self.theme = THEMES[args[0]]
-                self._console_print(f"Тема: {args[0]} (перезапустите для полного эффекта)")
+                self.save_settings()
+                self.apply_theme(force_rebuild=True)
+                self._console_print(f"Тема: {args[0]} (применена)")
+                self.console_output.configure(bg=self.theme['bg_dark'],
+                                              fg=self.theme['fg_main'])
             else:
                 self._console_print(f"Неизвестная тема: {args[0]}")
 
@@ -2841,7 +2941,7 @@ class HackersTerminal:
                 val = int(args[0])
                 self.minigame_chance = max(10, min(100, val))
                 self._console_print(f"Шанс мини-игры: {self.minigame_chance}%")
-            except:
+            except ValueError:
                 self._console_print("Ошибка: введите число 10-100")
 
         elif command == "clear":
@@ -2942,7 +3042,10 @@ class HackersTerminal:
                        font=('Consolas', 10)).pack(anchor='w', padx=20)
 
         def save():
-            self.current_theme_name = self.settings_theme_var.get()
+            new_theme = self.settings_theme_var.get()
+            theme_changed = new_theme != self.current_theme_name
+
+            self.current_theme_name = new_theme
             self.theme = THEMES[self.current_theme_name]
             self.minigame_chance = self.settings_chance_var.get()
             self.glitch_enabled = self.settings_glitch_var.get()
@@ -2951,29 +3054,49 @@ class HackersTerminal:
             # СОХРАНЯЕМ В ФАЙЛ!
             self.save_settings()
 
-            messagebox.showinfo("OK", "Сохранено!\nТема полностью применится при перезапуске.")
+            # Тема применяется сразу, без перезапуска
+            if theme_changed:
+                self.apply_theme(force_rebuild=True)
+
+            messagebox.showinfo("OK", "Сохранено!")
+            settings.destroy()
+
+        def reset_profile():
+            if not messagebox.askyesno(
+                    "Сброс профиля",
+                    "Удалить профиль игрока?\nДеньги, SP и навыки обнулятся.\n"
+                    "Настройки темы останутся."):
+                return
+            self.delete_player_data()
+            self.log_message("♻ Профиль сброшен — начинаем заново", "warning")
             settings.destroy()
 
         tk.Button(settings, text="💾 Сохранить",
                   bg=self.theme['bg_medium'], fg=self.theme['fg_main'],
                   font=('Consolas', 12, 'bold'),
-                  command=save).pack(pady=20)
+                  command=save).pack(pady=(20, 5))
+
+        tk.Button(settings, text="♻ Сбросить профиль",
+                  bg=self.theme['danger_bg'], fg=self.theme['error'],
+                  font=('Consolas', 10),
+                  command=reset_profile).pack(pady=(0, 15))
 
     def load_history(self):
         try:
             path = Path.home() / ".hacker_history.json"
             if path.exists():
-                with open(path, 'r') as f:
-                    self.attack_history = json.load(f)
-        except:
+                with open(path, 'r', encoding='utf-8') as f:
+                    loaded = json.load(f)
+                self.attack_history = loaded if isinstance(loaded, list) else []
+        except (OSError, ValueError):
             self.attack_history = []
 
     def save_history(self):
         try:
             path = Path.home() / ".hacker_history.json"
-            with open(path, 'w') as f:
+            with open(path, 'w', encoding='utf-8') as f:
                 json.dump(self.attack_history[-100:], f)
-        except:
+        except OSError:
             pass
 
     def open_history(self):
