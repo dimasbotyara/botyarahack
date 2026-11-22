@@ -15,21 +15,27 @@ from . import gamedata
 
 @dataclass
 class TargetList:
-    items: list[str] = field(default_factory=lambda: list(gamedata.TARGETS))
+    items: list[str] = field(default_factory=lambda: list(gamedata.ALL_TARGETS))
     queue: dict[str, int] = field(default_factory=dict)   # цель → номер
     click_count: int = 0
     filter_text: str = ''
+    filter_cats: set[str] = field(default_factory=set)
     scroll: int = 0
     hover: int = -1
 
     # ── выбор ───────────────────────────────────────────────────────────
     def visible(self) -> list[tuple[int, str]]:
-        """(индекс в items, подпись с номером очереди) — с учётом поиска."""
+        """(индекс в items, подпись с номером очереди) — с учётом поиска и категорий."""
         needle = self.filter_text.strip().lower()
+        cats = self.filter_cats
         out = []
         for i, name in enumerate(self.items):
             if needle and needle not in name.lower():
                 continue
+            if cats:
+                cat = gamedata.TARGET_CATEGORIES.get(name, 'other')
+                if cat not in cats:
+                    continue
             order = self.queue.get(name)
             out.append((i, f'[{order}] {name}' if order else name))
         return out
