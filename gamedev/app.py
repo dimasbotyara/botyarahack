@@ -22,7 +22,7 @@ import sys
 
 import pygame
 
-from . import config, gamedata, history
+from . import config, gamedata, history, saves
 from .attack import Attack, LogLine, mode_params
 from .attackmap import AttackMap
 from .console import Console
@@ -106,6 +106,14 @@ class App:
         self._log_drag_off = 0
         self._targets_dragging = False
         self._targets_drag_off = 0
+        # главное меню / режимы / слоты
+        self.show_main_menu = True
+        self.mode_select_open = False
+        self.slots_open = False
+        self.selected_mode = 'sandbox'
+        self.current_slot = None  # (mode, slot)
+        # фильтр категорий
+        self.filter_open = False
 
         self._build_main_ui()
         # геометрия панелей и модалки навыков нужна handle_events()
@@ -487,18 +495,26 @@ class App:
 
     # ── главный цикл ─────────────────────────────────────────────────────
     def run(self) -> int:
-        while self.running:
-            dt = self.clock.tick(self.FPS) / 1000.0
-            self.time += dt
-            self.handle_events()
-            self.matrix.update(dt)
-            self.map.update(dt)
-            self._pump_glitch(dt)
-            self._pump_minigame(dt)
-            self._pump_attack(min(dt, 0.1))
-            self.draw()
-            pygame.display.flip()
-        pygame.quit()
+        try:
+            while self.running:
+                dt = self.clock.tick(self.FPS) / 1000.0
+                self.time += dt
+                self.handle_events()
+                self.matrix.update(dt)
+                self.map.update(dt)
+                self._pump_glitch(dt)
+                self._pump_minigame(dt)
+                self._pump_attack(min(dt, 0.1))
+                self.draw()
+                pygame.display.flip()
+        except KeyboardInterrupt:
+            # Ctrl+C в консоли — не ронять стектрейс, просто тихо выйти
+            self.running = False
+        finally:
+            try:
+                pygame.quit()
+            except Exception:
+                pass
         return 0
 
     def handle_events(self) -> None:
@@ -527,6 +543,24 @@ class App:
                     ev = self._menu_event(event)
                     self.minigame.handle(ev)
                 continue
+
+            # ── главное меню / выбор режима / слоты / фильтр ──
+            if self.typing_name:
+                # ввод ника — всё остальное заблокировано
+                pass
+            else:
+                if self.filter_open:
+                    if self._handle_filter(event):
+                        continue
+                if self.slots_open:
+                    if self._handle_slots(event):
+                        continue
+                if self.mode_select_open:
+                    if self._handle_mode_select(event):
+                        continue
+                if self.show_main_menu:
+                    if self._handle_main_menu(event):
+                        continue
 
             if event.type == pygame.KEYDOWN:
                 if event.key == pygame.K_ESCAPE:
@@ -708,11 +742,21 @@ class App:
                 if self._targets_dragging:
                     self._update_targets_from_y(self._logical(event)[1])
                     continue
+            # ── кликабельный бейдж лога «↓ N» ──
+            if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+                br = self._log_badge_rect()
+                if br and br.collidepoint(self._logical(event)):
+                    self.log.scroll = 0
+                    self.log.autoscroll = True
+                    continue
             # ── обычный режим ──
             if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
                 pos = self._logical(event)
                 if self.search_rect.collidepoint(pos):
                     self.search_active = True
+                    continue
+                if hasattr(self, 'filter_btn_rect') and self.filter_btn_rect.collidepoint(pos):
+                    self.filter_open = not self.filter_open
                     continue
                 if self.skills_rect.collidepoint(pos):
                     self.skills_open = True
@@ -847,6 +891,16 @@ class App:
             self.minigame.draw(surf, W, H, self.theme, self.book)
         if self.typing_name:
             self._draw_name_prompt(surf, W, H)
+        # главное меню поверх всего (кроме ввода ника)
+        if not self.typing_name:
+            if self.show_main_menu:
+                self._draw_main_menu(surf, W, H)
+            elif self.mode_select_open:
+                self._draw_mode_select(surf, W, H)
+            elif self.slots_open:
+                self._draw_slots(surf, W, H)
+            elif self.filter_open:
+                self._draw_filter(surf, W, H)
 
         self.screen.blit_to_window()
         if self.glitch_shift:
@@ -931,8 +985,11 @@ class App:
         self.right_panel = Panel(rect=self.right_rect, title='◆ EXPLOIT LOG')
 
         # поле поиска и список целей внутри левой панели
+        # оставляем место под кнопку фильтра справа
         self.search_rect = pygame.Rect(self.left_rect.x + 10, self.left_rect.y + 32,
-                                       self.left_rect.width - 20, 24)
+                                       self.left_rect.width - 96, 24)
+        self.filter_btn_rect = pygame.Rect(self.search_rect.right + 6,
+                                           self.search_rect.y, 70, 24)
         list_top = self.search_rect.bottom + 6
         # оставляем 20 px под строку «в очереди / всего»
         list_bottom = self.attack_btn.rect.y - 28
@@ -972,6 +1029,17 @@ class App:
             # курсор после текста/иконки
             cx = box.x + 6 + (book.render(self.targets.filter_text, 11, theme['fg_main']).get_width() if self.targets.filter_text else icon.get_width() + 2 + txt.get_width()) + 1
             pygame.draw.line(surf, theme['accent'], (cx, box.y + 5), (cx, box.bottom - 5))
+
+        # кнопка фильтра рядом с поиском
+        fbox = getattr(self, 'filter_btn_rect', None)
+        if fbox:
+            n = len(getattr(self.targets, 'filter_cats', set()))
+            label = f'фильтр: {n}' if n else 'фильтр'
+            is_active = self.filter_open or n
+            pygame.draw.rect(surf, theme['bg_light'] if is_active else theme['bg_medium'], fbox)
+            pygame.draw.rect(surf, theme['accent'] if is_active else theme['border'], fbox, 1)
+            img = book.render(label, 9, theme['fg_main'] if is_active else theme['fg_dim'])
+            surf.blit(img, (fbox.centerx - img.get_width() // 2, fbox.centery - img.get_height() // 2))
 
         # список
         r = self.targets_rect
@@ -1114,6 +1182,199 @@ class App:
             t = y - track.y - h // 2
         pos = max(0.0, min(1.0, t / span if span else 0))
         self.targets.scroll = int(round(pos * max_scroll))
+
+    def _log_badge_rect(self):
+        if not hasattr(self, 'log') or not hasattr(self.log, 'scroll') or self.log.scroll == 0:
+            return None
+        total = len(getattr(self.log, '_wrapped', []))
+        if total <= self.log.visible_rows:
+            return None
+        badge = self.book.render(f'↓ {self.log.scroll}', 9, self.theme['bg_dark'])
+        pad = 6
+        box = pygame.Rect(self.log.rect.right - badge.get_width() - pad * 2 - 10,
+                          self.log.rect.bottom - 20, badge.get_width() + pad * 2, 15)
+        return box
+
+    # ── главное меню / режимы / слоты ─────────────────────────────────
+    def _main_menu_rect(self):
+        W, H = config.LOGICAL_W, config.LOGICAL_H
+        w, h = 420, 360
+        r = pygame.Rect((W - w)//2, (H - h)//2, w, h)
+        btn_w, btn_h = 220, 42
+        cx = r.centerx - btn_w//2
+        play = pygame.Rect(cx, r.y + 80, btn_w, btn_h)
+        sett = pygame.Rect(cx, play.bottom + 18, btn_w, btn_h)
+        ex = pygame.Rect(cx, sett.bottom + 18, btn_w, btn_h)
+        return {'panel': r, 'play': play, 'settings': sett, 'exit': ex}
+
+    def _mode_select_rect(self):
+        W, H = config.LOGICAL_W, config.LOGICAL_H
+        w, h = 500, 320
+        r = pygame.Rect((W - w)//2, (H - h)//2, w, h)
+        # одна кнопка песочницы + три заглушки
+        btn_w, btn_h = 300, 44
+        cx = r.centerx - btn_w//2
+        sandbox = pygame.Rect(cx, r.y + 80, btn_w, btn_h)
+        back = pygame.Rect(r.x + 20, r.bottom - 40, 100, 28)
+        return {'panel': r, 'sandbox': sandbox, 'back': back}
+
+    def _slots_rect(self):
+        W, H = config.LOGICAL_W, config.LOGICAL_H
+        w, h = 640, 520
+        r = pygame.Rect((W - w)//2, (H - h)//2, w, h)
+        rows = []
+        y = r.y + 70
+        for i in range(5):
+            rows.append(pygame.Rect(r.x + 16, y, r.width - 32, 70))
+            y += 78
+        back = pygame.Rect(r.x + 20, r.bottom - 40, 100, 28)
+        return {'panel': r, 'rows': rows, 'back': back}
+
+    def _filter_rect(self):
+        W, H = config.LOGICAL_W, config.LOGICAL_H
+        w, h = 420, 380
+        r = pygame.Rect((W - w)//2, (H - h)//2, w, h)
+        # 11 категорий в 2 колонки
+        cats = gamedata.CATEGORIES
+        checks = {}
+        x0, x1 = r.x + 20, r.x + r.width//2 + 10
+        y = r.y + 60
+        for idx, cat in enumerate(cats):
+            x = x0 if idx % 2 == 0 else x1
+            if idx % 2 == 0 and idx != 0:
+                y += 28
+            checks[cat] = pygame.Rect(x, y, 180, 20)
+        done = pygame.Rect(r.right - 120, r.bottom - 36, 100, 28)
+        clear = pygame.Rect(r.x + 20, r.bottom - 36, 100, 28)
+        return {'panel': r, 'checks': checks, 'done': done, 'clear': clear}
+
+    def _handle_main_menu(self, event) -> bool:
+        rects = self._main_menu_rect()
+        if event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
+            # на главном меню ESC — выход
+            self.running = False
+            return True
+        if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+            pos = self._logical(event)
+            if rects['play'].collidepoint(pos):
+                self.show_main_menu = False
+                self.mode_select_open = True
+                return True
+            if rects['settings'].collidepoint(pos):
+                self.open_menu()
+                return True
+            if rects['exit'].collidepoint(pos):
+                self.running = False
+                return True
+        return False
+
+    def _handle_mode_select(self, event) -> bool:
+        rects = self._mode_select_rect()
+        if event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
+            self.mode_select_open = False
+            self.show_main_menu = True
+            return True
+        if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+            pos = self._logical(event)
+            if rects['sandbox'].collidepoint(pos):
+                self.mode_select_open = False
+                self.slots_open = True
+                self.selected_mode = 'sandbox'
+                return True
+            if rects['back'].collidepoint(pos):
+                self.mode_select_open = False
+                self.show_main_menu = True
+                return True
+            if not rects['panel'].collidepoint(pos):
+                # клик мимо — назад в меню
+                self.mode_select_open = False
+                self.show_main_menu = True
+                return True
+        return False
+
+    def _handle_slots(self, event) -> bool:
+        rects = self._slots_rect()
+        if event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
+            self.slots_open = False
+            self.mode_select_open = True
+            return True
+        if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+            pos = self._logical(event)
+            # клик по слоту
+            for idx, row in enumerate(rects['rows']):
+                if row.collidepoint(pos):
+                    slot = idx + 1
+                    self._load_slot(self.selected_mode, slot)
+                    self.slots_open = False
+                    self.show_main_menu = False
+                    # после загрузки — уже в игре, лог уже наполнится
+                    return True
+            if rects['back'].collidepoint(pos):
+                self.slots_open = False
+                self.mode_select_open = True
+                return True
+            if not rects['panel'].collidepoint(pos):
+                self.slots_open = False
+                self.mode_select_open = True
+                return True
+        if event.type == pygame.MOUSEBUTTONDOWN and event.button == 3:
+            # ПКМ — удалить слот
+            pos = self._logical(event)
+            for idx, row in enumerate(rects['rows']):
+                if row.collidepoint(pos):
+                    saves.delete_slot(self.selected_mode, idx+1)
+                    return True
+        return False
+
+    def _handle_filter(self, event) -> bool:
+        rects = self._filter_rect()
+        if event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
+            self.filter_open = False
+            return True
+        if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+            pos = self._logical(event)
+            # галочки
+            for cat, r in rects['checks'].items():
+                if r.collidepoint(pos):
+                    if cat in self.targets.filter_cats:
+                        self.targets.filter_cats.remove(cat)
+                    else:
+                        self.targets.filter_cats.add(cat)
+                    self.targets.scroll = 0
+                    return True
+            if rects['done'].collidepoint(pos):
+                self.filter_open = False
+                return True
+            if rects['clear'].collidepoint(pos):
+                self.targets.filter_cats.clear()
+                self.targets.scroll = 0
+                return True
+            if not rects['panel'].collidepoint(pos):
+                self.filter_open = False
+                return True
+        return False
+
+    def _load_slot(self, mode: str, slot: int):
+        data = saves.load_slot(mode, slot)
+        if data and 'player' in data:
+            self.player = Player.from_dict(data['player'])
+            self.player.save()  # синхронизируем основной профиль тоже
+        else:
+            # новый слот — сброс к дефолту, но имя оставляем
+            name = self.player.name
+            self.player = Player(name=name)
+            self.player.save()
+            saves.save_slot(mode, slot, self.player)
+        self.current_slot = (mode, slot)
+        self.show_main_menu = False
+        # сбросить состояние игры под новый слот
+        self.targets = TargetList()
+        self.targets.filter_text = ''
+        self.targets.filter_cats.clear()
+        self.attack = None
+        self.history_entries = history.load()
+        self.log.clear()
+        self._welcome()
 
     def _draw_footer(self, surf, W: int, H: int) -> None:
         theme, book = self.theme, self.book
@@ -1364,6 +1625,124 @@ class App:
         hint = book.render('Введи имя и нажми Enter', 10, theme['muted'])
         surf.blit(hint, (box.centerx - hint.get_width() // 2, box.bottom - 34))
 
+    # ── главное меню / выбор режима / слоты / фильтр ───────────────────
+    def _draw_main_menu(self, surf, W: int, H: int) -> None:
+        theme, book = self.theme, self.book
+        dim_surface(surf, 160)
+        rects = self._main_menu_rect()
+        r = rects['panel']
+        pygame.draw.rect(surf, theme['bg_dark'], r)
+        pygame.draw.rect(surf, theme['accent'], r, 2)
+        title = book.render('BOTYARAHACK', 24, theme['accent'], chain=['jetbrains_bold', 'symbols', 'emoji'])
+        surf.blit(title, (r.centerx - title.get_width()//2, r.y + 24))
+        sub = book.render(f'v{config.VERSION}  —  {config.TITLE}', 9, theme['fg_dim'])
+        surf.blit(sub, (r.centerx - sub.get_width()//2, r.y + 56))
+        # кнопки
+        for key in ('play', 'settings', 'exit'):
+            rect = rects[key]
+            label = {'play':'▶ Играть', 'settings':'⚙ Настройки', 'exit':'✖ Выйти'}[key]
+            accent = (key == 'play')
+            pygame.draw.rect(surf, theme['bg_medium'] if key!='play' else theme['bg_light'], rect)
+            pygame.draw.rect(surf, theme['accent'] if accent else theme['border'], rect, 1)
+            img = book.render(label, 14, theme['accent'] if accent else theme['fg_main'])
+            surf.blit(img, (rect.centerx - img.get_width()//2, rect.centery - img.get_height()//2))
+
+    def _draw_mode_select(self, surf, W: int, H: int) -> None:
+        theme, book = self.theme, self.book
+        dim_surface(surf, 160)
+        rects = self._mode_select_rect()
+        r = rects['panel']
+        pygame.draw.rect(surf, theme['bg_dark'], r)
+        pygame.draw.rect(surf, theme['accent'], r, 2)
+        title = book.render('ВЫБЕРИ РЕЖИМ', 18, theme['fg_main'], chain=['jetbrains_bold', 'symbols', 'emoji'])
+        surf.blit(title, (r.centerx - title.get_width()//2, r.y + 20))
+        # песочница
+        btn = rects['sandbox']
+        pygame.draw.rect(surf, theme['bg_medium'], btn)
+        pygame.draw.rect(surf, theme['accent'], btn, 2)
+        img = book.render('⧉ Песочница', 14, theme['accent'], chain=['jetbrains_bold', 'symbols', 'emoji'])
+        surf.blit(img, (btn.centerx - img.get_width()//2, btn.y + 10))
+        desc = book.render('Свободный взлом — все цели открыты', 9, theme['fg_dim'])
+        surf.blit(desc, (btn.centerx - desc.get_width()//2, btn.y + 28))
+        # заглушки
+        for i, name in enumerate(['Сюжет (скоро)', 'Сеть (скоро)', 'Турнир (скоро)']):
+            rr = pygame.Rect(btn.x, btn.bottom + 10 + i*30, btn.width, 26)
+            pygame.draw.rect(surf, theme['bg_dark'], rr)
+            pygame.draw.rect(surf, theme['border'], rr, 1)
+            im = book.render(name, 10, theme['muted'])
+            surf.blit(im, (rr.centerx - im.get_width()//2, rr.centery - im.get_height()//2))
+        # назад
+        back = rects['back']
+        pygame.draw.rect(surf, theme['bg_medium'], back)
+        pygame.draw.rect(surf, theme['border'], back, 1)
+        im = book.render('← Назад', 10, theme['fg_main'])
+        surf.blit(im, (back.centerx - im.get_width()//2, back.centery - im.get_height()//2))
+
+    def _draw_slots(self, surf, W: int, H: int) -> None:
+        theme, book = self.theme, self.book
+        dim_surface(surf, 180)
+        rects = self._slots_rect()
+        r = rects['panel']
+        pygame.draw.rect(surf, theme['bg_dark'], r)
+        pygame.draw.rect(surf, theme['accent'], r, 2)
+        title = book.render(f'СЛОТЫ — {self.selected_mode.upper()}', 16, theme['fg_main'], chain=['jetbrains_bold', 'symbols', 'emoji'])
+        surf.blit(title, (r.centerx - title.get_width()//2, r.y + 18))
+        hint = book.render('ЛКМ — играть  ·  ПКМ — удалить', 9, theme['muted'])
+        surf.blit(hint, (r.centerx - hint.get_width()//2, r.y + 42))
+        infos = saves.list_slots(self.selected_mode)
+        for idx, row in enumerate(rects['rows']):
+            info = infos[idx]
+            pygame.draw.rect(surf, theme['bg_medium'], row)
+            pygame.draw.rect(surf, theme['accent'] if info.exists else theme['border'], row, 1)
+            num = book.render(f'#{idx+1}', 11, theme['fg_dim'])
+            surf.blit(num, (row.x + 12, row.centery - num.get_height()//2))
+            if info.exists:
+                name = book.render(info.name or '—', 11, theme['fg_main'])
+                surf.blit(name, (row.x + 40, row.y + 12))
+                det = book.render(f'${info.money}  ур.{info.level}  {info.date}', 9, theme['fg_dim'])
+                surf.blit(det, (row.x + 40, row.y + 30))
+                badge = book.render('занят', 9, theme['accent'])
+            else:
+                empty = book.render('— пусто —', 11, theme['muted'])
+                surf.blit(empty, (row.x + 40, row.centery - empty.get_height()//2))
+                badge = book.render('пусто', 9, theme['muted'])
+            surf.blit(badge, (row.right - badge.get_width() - 12, row.centery - badge.get_height()//2))
+        back = rects['back']
+        pygame.draw.rect(surf, theme['bg_medium'], back)
+        pygame.draw.rect(surf, theme['border'], back, 1)
+        im = book.render('← Назад', 10, theme['fg_main'])
+        surf.blit(im, (back.centerx - im.get_width()//2, back.centery - im.get_height()//2))
+
+    def _draw_filter(self, surf, W: int, H: int) -> None:
+        theme, book = self.theme, self.book
+        dim_surface(surf, 150)
+        rects = self._filter_rect()
+        r = rects['panel']
+        pygame.draw.rect(surf, theme['bg_dark'], r)
+        pygame.draw.rect(surf, theme['accent'], r, 2)
+        title = book.render('ФИЛЬТР КАТЕГОРИЙ', 14, theme['fg_main'], chain=['jetbrains_bold', 'symbols', 'emoji'])
+        surf.blit(title, (r.centerx - title.get_width()//2, r.y + 16))
+        for cat, cr in rects['checks'].items():
+            checked = cat in self.targets.filter_cats
+            # квадратик
+            box = pygame.Rect(cr.x, cr.y + 2, 14, 14)
+            pygame.draw.rect(surf, theme['bg_medium'], box)
+            pygame.draw.rect(surf, theme['accent'] if checked else theme['border'], box, 1)
+            if checked:
+                pygame.draw.line(surf, theme['accent'], (box.x+3, box.y+7), (box.x+6, box.y+11), 2)
+                pygame.draw.line(surf, theme['accent'], (box.x+6, box.y+11), (box.x+11, box.y+4), 2)
+            label = gamedata.CATEGORY_LABELS.get(cat, cat)
+            img = book.render(label, 10, theme['fg_main'] if checked else theme['fg_dim'])
+            surf.blit(img, (box.right + 8, cr.y + 2))
+        # кнопки
+        for key in ('clear', 'done'):
+            bb = rects[key]
+            txt = 'Сбросить' if key=='clear' else 'Готово ✓'
+            pygame.draw.rect(surf, theme['bg_medium'], bb)
+            pygame.draw.rect(surf, theme['accent'] if key=='done' else theme['border'], bb, 1)
+            im = book.render(txt, 10, theme['accent'] if key=='done' else theme['fg_main'])
+            surf.blit(im, (bb.centerx - im.get_width()//2, bb.centery - im.get_height()//2))
+
     def _menu_caption(self, surf, text: str, rect_or_x, y: int | None = None) -> None:
         """Подпись над виджетом (или на заданной высоте y)."""
         theme, book = self.theme, self.book
@@ -1376,7 +1755,10 @@ class App:
 
 
 def main() -> int:
-    return App().run()
+    try:
+        return App().run()
+    except KeyboardInterrupt:
+        return 0
 
 
 if __name__ == '__main__':

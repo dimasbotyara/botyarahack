@@ -405,7 +405,12 @@ class Attack:
             self._log(f'  Провалено: {self.failed}/{total}', 'error')
         self._log('═' * 50, 'header')
         if self.completed:
-            self.money = self.rng.randint(50, 200) * self.completed
+            # localhost — учебная цель, денег не даёт (если все цели localhost — 0)
+            all_local = all('127.0.0.1' in t or 'localhost' in t for t in self.targets)
+            if all_local:
+                self.money = 0
+            else:
+                self.money = self.rng.randint(50, 200) * self.completed
             self._log('', 'info')
             self._log(f'  ЗАРАБОТАНО: ${self.money}', 'success')
             self._log(f'  ОПЫТ: +{self.completed} SP', 'data')
