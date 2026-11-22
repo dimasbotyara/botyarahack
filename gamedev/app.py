@@ -22,9 +22,10 @@ import sys
 
 import pygame
 
-from . import config, gamedata
+from . import config, gamedata, history
 from .attack import Attack, LogLine, mode_params
 from .attackmap import AttackMap
+from .console import Console
 from .background import MatrixRain
 from .display import compute_size
 from .logpanel import LogView
@@ -89,7 +90,15 @@ class App:
         self.skills_hover = False
         self.name_rect = pygame.Rect(0, 0, 0, 0)
         self.minigame: Minigame | None = None
+        self.history_open = False
+        self.console = Console()
+        self.theme_keys = [k for k, _ in Theme.all_themes()]
+        self.history_entries = history.load()
+        self.history_scroll = 0
         self.minigame_rng = random.Random()
+        self.glitch_timer = random.uniform(2.0, 5.0)
+        self.glitch_shift = 0
+        self.glitch_hold = 0.0
 
         self._build_main_ui()
         self._build_menu_ui()
@@ -103,7 +112,7 @@ class App:
             Button(rect=pygame.Rect(W - 150, 12, 60, 24), text='⚙ Настройки',
                    size=9, on_click=self.open_menu),
             Button(rect=pygame.Rect(W - 82, 12, 50, 24), text='📜', size=9,
-                   on_click=self._show_history),
+                   on_click=self._toggle_history),
         ]
         self.status_lights = [('DARKNET', True), ('TOR', True), ('VPN', False),
                               ('CRYPTO', True)]
@@ -260,6 +269,26 @@ class App:
         self.log_line('⚠ Цель не выбрана, атакую случайную', 'warning')
         return [target]
 
+    def _pump_glitch(self, dt: float) -> None:
+        """Редкие сдвиги картинки — как «глитч» в старой версии.
+
+        В tkinter это было мигание фона лога; здесь — сдвиг полос
+        по горизонтали, заметнее и без дёрганья всего окна.
+        """
+        if not self.settings.glitch_enabled:
+            self.glitch_shift = 0
+            return
+        self.glitch_timer -= dt
+        if self.glitch_timer <= 0:
+            # короткая вспышка раз в 4–9 секунд
+            self.glitch_timer = random.uniform(4.0, 9.0)
+            self.glitch_shift = random.choice([3, 5, 8])
+            self.glitch_hold = random.uniform(0.05, 0.12)
+        elif self.glitch_shift:
+            self.glitch_hold -= dt
+            if self.glitch_hold <= 0:
+                self.glitch_shift = 0
+
     RESULT_PAUSE = 1.1        # секунд показать «победа/провал» перед закрытием
 
     def _pump_minigame(self, dt: float) -> None:
@@ -269,6 +298,12 @@ class App:
             if self.minigame.result is not None and \
                     self.minigame.finished >= self.RESULT_PAUSE:
                 self._close_minigame()
+            return
+        if self.console.game_started:
+            name = self.console.game_started
+            self.console.game_started = None
+            self.minigame = make_game('debug / console', rng=self.minigame_rng,
+                                      name=name)
             return
         if self.attack is not None and self.attack.minigame:
             self.minigame = make_game(self.attack.current_target,
@@ -281,7 +316,7 @@ class App:
             return
         won = bool(self.minigame.result)
         self.minigame = None
-        if self.attack is not None:
+        if self.attack is not None and self.attack.minigame:
             self.attack.resolve_minigame(won)
 
     def _pump_attack(self, dt: float) -> None:
@@ -310,6 +345,9 @@ class App:
                               'data')
             if a.money:
                 self.log_line(f'  Заработано: ${a.money}', 'success')
+            self.history_entries = history.add(
+                self.history_entries, len(a.targets), a.completed, a.failed,
+                self.settings.attack_mode)
             self.attack = None
 
     # ── настройки ───────────────────────────────────────────────────────
@@ -358,8 +396,24 @@ class App:
         self.settings.save()
         self.menu_open = False
 
-    def _show_history(self) -> None:
-        self.log_line('📜 История атак — Этап 3', 'warning')
+    def _toggle_history(self) -> None:
+        self.history_open = not self.history_open
+        if self.history_open:
+            self.history_entries = history.load()
+            self.history_scroll = 0
+
+    def _export_log(self) -> None:
+        """Сохранить лог в файл рядом с профилем (без диалогов)."""
+        from pathlib import Path as _Path
+
+        stamp = _dt.datetime.now().strftime('%Y%m%d_%H%M%S')
+        path = _Path.home() / f'botyarahack_log_{stamp}.txt'
+        try:
+            path.write_text('\n'.join(ln.text for ln in self.log.lines),
+                            encoding='utf-8')
+            self.log_line(f'💾 Лог сохранён: {path}', 'success')
+        except OSError as exc:
+            self.log_line(f'⚠ Не удалось сохранить лог: {exc}', 'error')
 
     # ── главный цикл ─────────────────────────────────────────────────────
     def run(self) -> int:
@@ -369,6 +423,7 @@ class App:
             self.handle_events()
             self.matrix.update(dt)
             self.map.update(dt)
+            self._pump_glitch(dt)
             self._pump_minigame(dt)
             self._pump_attack(min(dt, 0.1))
             self.draw()
@@ -405,7 +460,11 @@ class App:
 
             if event.type == pygame.KEYDOWN:
                 if event.key == pygame.K_ESCAPE:
-                    if self.skills_open:
+                    if self.console.open:
+                        self.console.open = False
+                    elif self.history_open:
+                        self.history_open = False
+                    elif self.skills_open:
                         self.skills_open = False
                     elif self.menu_open:
                         self.menu_open = False
@@ -419,6 +478,18 @@ class App:
                         self.running = False
                     continue
 
+                if self.console.open:
+                    self.console.handle_key(event)
+                    if self.console.execute_ready:
+                        self.console.execute_ready = False
+                        self.console.execute(self)
+                    continue
+                if self.history_open:
+                    if event.key in (pygame.K_UP, pygame.K_DOWN):
+                        step = 1 if event.key == pygame.K_UP else -1
+                        self.history_scroll = max(
+                            0, self.history_scroll + step)
+                    continue
                 if self.skills_open:
                     continue
                 if self.search_active:
@@ -436,6 +507,19 @@ class App:
 
                 if event.key == pygame.K_m and not self.menu_open:
                     self.open_menu()
+                    continue
+                if event.key in (pygame.K_F1, pygame.K_BACKQUOTE) and \
+                        not self.menu_open:
+                    self.console.open = not self.console.open
+                    continue
+                if event.key == pygame.K_h and not self.menu_open:
+                    self.history_open = not self.history_open
+                    if self.history_open:
+                        self.history_entries = history.load()
+                        self.history_scroll = 0
+                    continue
+                if event.key == pygame.K_F12 and not self.menu_open:
+                    self._export_log()
                     continue
                 if event.key == pygame.K_SPACE and self.attack and not self.menu_open:
                     self.paused = not self.paused
@@ -569,12 +653,31 @@ class App:
             self._draw_menu(surf, W, H)
         if self.skills_open:
             self._draw_skills(surf, W, H)
+        if self.history_open:
+            self._draw_history(surf, W, H)
+        if self.console.open:
+            self._draw_console(surf, W, H)
         if self.minigame is not None:
             self.minigame.draw(surf, W, H, self.theme, self.book)
         if self.typing_name:
             self._draw_name_prompt(surf, W, H)
 
         self.screen.blit_to_window()
+        if self.glitch_shift:
+            self._apply_glitch()
+
+    def _apply_glitch(self) -> None:
+        """Сдвинуть несколько случайных полос на уже нарисованном окне."""
+        win = self.window
+        h = win.get_height()
+        for _ in range(3):
+            band_h = random.randint(4, 22)
+            y = random.randint(0, max(1, h - band_h))
+            try:
+                band = win.subsurface(pygame.Rect(0, y, win.get_width(), band_h)).copy()
+            except ValueError:
+                return
+            win.blit(band, (self.glitch_shift, y))
 
     def _draw_header(self, surf, W: int) -> None:
         theme, book = self.theme, self.book
@@ -770,8 +873,8 @@ class App:
         surf.blit(info, (16, top + 48))
 
         hint = book.render(
-            'ВЗЛОМАТЬ — старт/стоп  │  SPACE — пауза  │  M — настройки  │  ESC — выход',
-            8, theme['muted'])
+            'ВЗЛОМАТЬ — старт/стоп │ SPACE — пауза │ H — история │ M — настройки │ '
+            'F1 — консоль │ F12 — экспорт лога │ ESC — выход', 8, theme['muted'])
         surf.blit(hint, (16, top + 60))
 
     def _draw_menu(self, surf, W: int, H: int) -> None:
@@ -815,6 +918,105 @@ class App:
         hint = book.render('Размер окна меняется только здесь — мышью тянуть нельзя',
                            9, theme['fg_dim'])
         surf.blit(hint, (r.x + 24, r.bottom - 78))
+
+    # ── история атак ────────────────────────────────────────────────────
+    def _draw_history(self, surf, W: int, H: int) -> None:
+        theme, book = self.theme, self.book
+        dim = pygame.Surface((W, H))
+        dim.fill((0, 0, 0))
+        dim.set_alpha(180)
+        surf.blit(dim, (0, 0))
+
+        w, h = 760, 500
+        r = pygame.Rect((W - w) // 2, (H - h) // 2, w, h)
+        pygame.draw.rect(surf, theme['bg_dark'], r)
+        pygame.draw.rect(surf, theme['accent'], r, 1)
+
+        title = book.render('📜 ИСТОРИЯ АТАК', 16, theme['fg_main'],
+                            chain=['jetbrains_bold', 'symbols', 'emoji'])
+        surf.blit(title, (r.x + 24, r.y + 16))
+        hint = book.render('H или ESC — закрыть', 9, theme['muted'])
+        surf.blit(hint, (r.right - hint.get_width() - 24, r.y + 22))
+        pygame.draw.line(surf, theme['border'], (r.x + 1, r.y + 50),
+                         (r.right - 1, r.y + 50))
+
+        cols = ['Дата', 'Целей', 'Успех', 'Провал', 'Режим']
+        xs = [r.x + 24, r.x + 320, r.x + 410, r.x + 500, r.x + 600]
+        for x, name in zip(xs, cols):
+            surf.blit(book.render(name, 9, theme['fg_dim']), (x, r.y + 60))
+        pygame.draw.line(surf, theme['border'], (r.x + 16, r.y + 76),
+                         (r.right - 16, r.y + 76))
+
+        entries = list(reversed(self.history_entries))
+        rows = max(1, (r.height - 150) // 20)
+        self.history_scroll = max(0, min(max(0, len(entries) - rows),
+                                         self.history_scroll))
+        y = r.y + 84
+        if not entries:
+            surf.blit(book.render('пока пусто — проведи первую атаку', 10,
+                                  theme['muted']), (r.x + 24, y))
+        for e in entries[self.history_scroll:self.history_scroll + rows]:
+            color = theme['accent'] if e['completed'] else theme['fg_dim']
+            if e['failed']:
+                color = theme['warning']
+            values = [e['date'], str(e['targets']), str(e['completed']),
+                      str(e['failed']), e['mode']]
+            for x, value in zip(xs, values):
+                surf.blit(book.render(value, 9, color), (x, y))
+            y += 20
+
+        s = history.summary(self.history_entries)
+        foot = (f"Атак: {s['attacks']}   целей: {s['targets']}   "
+                f"успешно: {s['completed']}   провалено: {s['failed']}")
+        img = book.render(foot, 10, theme['fg_main'])
+        surf.blit(img, (r.x + 24, r.bottom - 34))
+
+    # ── консоль отладки ─────────────────────────────────────────────────
+    def _draw_console(self, surf, W: int, H: int) -> None:
+        theme, book = self.theme, self.book
+        dim = pygame.Surface((W, H))
+        dim.fill((0, 0, 0))
+        dim.set_alpha(190)
+        surf.blit(dim, (0, 0))
+
+        w, h = 820, 460
+        r = pygame.Rect((W - w) // 2, (H - h) // 2, w, h)
+        pygame.draw.rect(surf, (0, 0, 0), r)
+        pygame.draw.rect(surf, theme['accent'], r, 1)
+
+        title = book.render('🖥 DEBUG CONSOLE', 14, theme['accent'],
+                            chain=['jetbrains_bold', 'symbols', 'emoji'])
+        surf.blit(title, (r.x + 18, r.y + 12))
+        hint = book.render('F1 / ` — закрыть   ·   help — команды', 9, theme['muted'])
+        surf.blit(hint, (r.right - hint.get_width() - 18, r.y + 16))
+
+        # вывод
+        out = pygame.Rect(r.x + 14, r.y + 44, r.width - 28, r.height - 96)
+        pygame.draw.rect(surf, (0, 0, 0), out)
+        pygame.draw.rect(surf, theme['border'], out, 1)
+        lines = self.console.output
+        rows = self.console.VISIBLE
+        end = len(lines) - self.console.scroll
+        start = max(0, end - rows)
+        y = out.y + 6
+        for line in lines[start:max(0, end)]:
+            img = book.render(line[:110], 10, theme['accent'])
+            surf.blit(img, (out.x + 8, y))
+            y += 15
+
+        # ввод
+        field = pygame.Rect(r.x + 14, out.bottom + 10, r.width - 28, 30)
+        pygame.draw.rect(surf, (0, 0, 0), field)
+        pygame.draw.rect(surf, theme['accent'], field, 1)
+        prompt = book.render('>', 12, theme['accent'],
+                             chain=['jetbrains_bold', 'symbols'])
+        surf.blit(prompt, (field.x + 8, field.centery - prompt.get_height() // 2))
+        text = book.render(self.console.input, 11, theme['fg_main'])
+        surf.blit(text, (field.x + 26, field.centery - text.get_height() // 2))
+        if int(self.time * 2) % 2 == 0:
+            cx = field.x + 28 + text.get_width()
+            pygame.draw.line(surf, theme['accent'], (cx, field.y + 7),
+                             (cx, field.bottom - 7))
 
     # ── окно навыков ────────────────────────────────────────────────────
     SKILL_LABELS = {

@@ -183,6 +183,30 @@ def render(out_dir: Path) -> list[Path]:
         pygame.image.save(app.screen.surface.copy(), str(p))
         saved.append(p)
 
+    # ── Этап 5: история атак и консоль ──
+    app.minigame = None
+    app.attack = None
+    for i in range(8):
+        app.history_entries = __import__(
+            'gamedev.history', fromlist=['add']).add(
+            app.history_entries, targets=3, completed=2 + (i % 2),
+            failed=i % 3, mode=['stealth', 'normal', 'aggressive'][i % 3])
+    app.history_open = True
+    app.draw()
+    p = out_dir / 'stage5-history.png'
+    pygame.image.save(app.screen.surface.copy(), str(p))
+    saved.append(p)
+
+    app.history_open = False
+    app.console.open = True
+    for cmd in ('status', 'theme cyberpunk', 'mode aggressive'):
+        app.console.input = cmd
+        app.console.execute(app)
+    app.draw()
+    p = out_dir / 'stage5-console.png'
+    pygame.image.save(app.screen.surface.copy(), str(p))
+    saved.append(p)
+
     # кадр: победа в мини-игре (чистый лабиринт с исходом)
     app.minigame = make_game('github / github.com', _random.Random(7), name='Лабиринт')
     for _ in range(15):

@@ -271,6 +271,117 @@ def test_app_name_prompt_required_before_attack():
     pygame.quit()
 
 
+# ─────────────────── история атак ───────────────────
+def test_history_roundtrip_and_summary():
+    from gamedev import history
+
+    path = _tmp('h.json')
+    entries = history.load(path)
+    assert entries == []
+    for i in range(3):
+        entries = history.add(entries, targets=2, completed=1 + i, failed=i,
+                              mode='normal', path=path)
+    loaded = history.load(path)
+    assert len(loaded) == 3
+    s = history.summary(loaded)
+    assert s['attacks'] == 3 and s['completed'] == 6
+
+
+def test_history_keeps_last_100():
+    from gamedev import history
+
+    path = _tmp('h2.json')
+    entries = []
+    for i in range(150):
+        entries = history.add(entries, 1, 1, 0, 'normal', path=path)
+    assert len(history.load(path)) == 100
+
+
+def test_history_survives_garbage():
+    from gamedev import history
+
+    path = _tmp('h3.json')
+    for raw in ('{не json', '{"a": 1}', '[1, 2, 3]', ''):
+        path.write_text(raw, encoding='utf-8')
+        assert history.load(path) == []
+
+
+# ─────────────────── консоль отладки ───────────────────
+def test_console_commands():
+    from gamedev.console import Console
+
+    pygame, app = _app()
+    console = Console()
+    app.console = console
+
+    console.input = 'theme ocean'
+    console.execute(app)
+    assert app.settings.theme == 'ocean'
+
+    console.input = 'mode stealth'
+    console.execute(app)
+    assert app.settings.attack_mode == 'stealth'
+
+    console.input = 'chance 999'
+    console.execute(app)
+    assert app.settings.minigame_chance == 100, 'шанс не ограничился'
+
+    console.input = 'chance abc'
+    console.execute(app)
+    assert 'Ошибка' in console.output[-1]
+
+    console.input = 'minigame maze'
+    console.execute(app)
+    assert console.game_started == 'Лабиринт'
+
+    console.input = 'minigame нетакой'
+    console.execute(app)
+    assert 'Неизвестная игра' in console.output[-1]
+
+    console.input = 'status'
+    console.execute(app)
+    assert any('Тема' in line for line in console.output[-8:])
+
+    console.input = '???'
+    console.execute(app)
+    assert 'Неизвестная команда' in console.output[-1]
+    pygame.quit()
+
+
+def test_console_game_launch_does_not_touch_attack():
+    """Игра из консоли — отдельно от атаки, движок не должен её ждать."""
+    pygame, app = _app()
+    app.console.open = True
+    app.console.input = 'minigame wire'
+    app.console.execute(app)
+    app._pump_minigame(0.02)
+    assert app.minigame is not None
+    app.minigame.result = True
+    app.minigame.finished = 2.0
+    app._pump_minigame(0.02)
+    assert app.minigame is None
+    pygame.quit()
+
+
+def test_export_log_writes_file():
+    import tempfile
+    from pathlib import Path as _P
+
+    pygame, app = _app()
+    home = _P(tempfile.mkdtemp())
+    # пишем в temp: подменяем Path.home на время вызова
+    real_home = _P.home
+    try:
+        _P.home = classmethod(lambda cls: home)
+        app._export_log()
+    finally:
+        _P.home = real_home
+    files = list(home.glob('botyarahack_log_*.txt'))
+    assert files, 'лог не сохранился'
+    assert files[0].read_text(encoding='utf-8').strip(), 'файл лога пустой'
+    pygame.quit()
+
+
 if __name__ == '__main__':
     tests = [(n, f) for n, f in sorted(globals().items()) if n.startswith('test_')]
     failed = 0
