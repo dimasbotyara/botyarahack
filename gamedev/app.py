@@ -101,6 +101,11 @@ class App:
         self.glitch_timer = random.uniform(2.0, 5.0)
         self.glitch_shift = 0
         self.glitch_hold = 0.0
+        # dragging scrollbar
+        self._log_dragging = False
+        self._log_drag_off = 0
+        self._targets_dragging = False
+        self._targets_drag_off = 0
 
         self._build_main_ui()
         # геометрия панелей и модалки навыков нужна handle_events()
@@ -216,12 +221,15 @@ class App:
                    text='💾 Сохранить', size=11, accent=True,
                    on_click=self.save_and_close),
             Button(rect=pygame.Rect(px + 30, y, 100, 28),
-                   text='✖ Закрыть', size=11,
+                   text='Закрыть', size=11,
                    on_click=lambda: setattr(self, 'menu_open', False)),
         ]
 
     # ── лог ─────────────────────────────────────────────────────────────
     def _welcome(self) -> None:
+        # Не показываем лог до ввода имени — иначе «Анон» в сети до выбора ника
+        if getattr(self, 'typing_name', False):
+            return
         stamp = self._stamp()
         lines = [
             LogLine('═' * 50, 'header', stamp),
@@ -547,10 +555,21 @@ class App:
                         self.console.execute(self)
                     continue
                 if self.history_open:
+                    if event.key == pygame.K_h:
+                        self.history_open = False
+                        continue
+                    if event.key == pygame.K_m:
+                        self.history_open = False
+                        self.open_menu()
+                        continue
                     if event.key in (pygame.K_UP, pygame.K_DOWN):
                         step = 1 if event.key == pygame.K_UP else -1
                         self.history_scroll = max(
                             0, self.history_scroll + step)
+                        continue
+                    # остальные клавиши в истории — не мешают тогглу внизу
+                    if event.key in (pygame.K_F1, pygame.K_F12, pygame.K_SPACE):
+                        continue
                     continue
                 if self.skills_open:
                     continue
@@ -567,16 +586,26 @@ class App:
                         self.targets.type_char(event.unicode)
                     continue
 
-                if event.key == pygame.K_m and not self.menu_open:
-                    self.open_menu()
+                if event.key == pygame.K_m:
+                    if self.menu_open:
+                        self.menu_open = False
+                    else:
+                        # если открыт другой оверлей — закрыть его и открыть настройки
+                        if self.history_open:
+                            self.history_open = False
+                        self.open_menu()
                     continue
                 if event.key in (pygame.K_F1, pygame.K_BACKQUOTE) and \
                         not self.menu_open:
                     self.console.open = not self.console.open
                     continue
-                if event.key == pygame.K_h and not self.menu_open:
-                    self.history_open = not self.history_open
+                if event.key == pygame.K_h:
                     if self.history_open:
+                        self.history_open = False
+                    else:
+                        if self.menu_open:
+                            self.menu_open = False
+                        self.history_open = True
                         self.history_entries = history.load()
                         self.history_scroll = 0
                     continue
@@ -622,32 +651,63 @@ class App:
                     continue
 
             if self.menu_open:
+                # сначала пробуем любой дропдаун (открыть/выбрать)
+                handled_dd = False
                 for dd in (self.theme_dd, self.size_dd, self.window_mode_dd):
-                    if dd.open and dd.handle(self._menu_event(event)):
+                    if dd.handle(self._menu_event(event)):
+                        handled_dd = True
                         break
-                else:
-                    # ни один дропдаун не съел событие — проверяем клик мимо
-                    if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1 and \
-                            not self.menu_rect.collidepoint(self.screen.to_logical(event.pos)):
-                        for dd in (self.theme_dd, self.size_dd, self.window_mode_dd):
-                            dd.open = False
-                        self.menu_open = False
-                        continue
-                    # обычный клик внутри меню — дать виджетам шанс
-                    if event.type not in (pygame.KEYDOWN,):
-                        for w in self.menu_widgets:
-                            if w not in (self.theme_dd, self.size_dd, self.window_mode_dd):
-                                w.handle(self._menu_event(event))
-                        for b in self.menu_buttons:
-                            b.handle(self._menu_event(event))
-                        continue
-                continue
+                if handled_dd:
+                    continue
+                # клик мимо — закрыть
+                if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1 and \
+                        not self.menu_rect.collidepoint(self.screen.to_logical(event.pos)):
+                    for dd in (self.theme_dd, self.size_dd, self.window_mode_dd):
+                        dd.open = False
+                    self.menu_open = False
+                    continue
+                # остальные виджеты (слайдер, чекбоксы, кнопки)
+                for w in self.menu_widgets:
+                    if w not in (self.theme_dd, self.size_dd, self.window_mode_dd):
+                        if w.handle(self._menu_event(event)):
+                            break
+                for b in self.menu_buttons:
+                    if b.handle(self._menu_event(event)):
+                        break
                 continue
 
             if self.skills_open:
                 self._handle_skills(event)
                 continue
 
+            # ── обычный режим: скролл-бары (лог и цели) ──
+            if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+                lp = self._logical(event)
+                lm = self._log_metrics()
+                if lm and lm['hit'].collidepoint(lp):
+                    self._log_dragging = True
+                    # если попали по thumb — запомнить смещение, иначе центрировать
+                    self._log_drag_off = lp[1] - lm['thumb'].y if lm['thumb'].collidepoint(lp) else 999
+                    self._update_log_from_y(lp[1])
+                    continue
+                tm = self._targets_metrics()
+                if tm and tm['hit'].collidepoint(lp):
+                    self._targets_dragging = True
+                    self._targets_drag_off = lp[1] - tm['thumb'].y if tm['thumb'].collidepoint(lp) else 999
+                    self._update_targets_from_y(lp[1])
+                    continue
+            if event.type == pygame.MOUSEBUTTONUP and event.button == 1:
+                if self._log_dragging or self._targets_dragging:
+                    self._log_dragging = False
+                    self._targets_dragging = False
+                    continue
+            if event.type == pygame.MOUSEMOTION:
+                if self._log_dragging:
+                    self._update_log_from_y(self._logical(event)[1])
+                    continue
+                if self._targets_dragging:
+                    self._update_targets_from_y(self._logical(event)[1])
+                    continue
             # ── обычный режим ──
             if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
                 pos = self._logical(event)
@@ -689,6 +749,7 @@ class App:
         self.player.save()
         self.typing_name = False
         self.log_line(f"▶ Хакер '{name}' в сети", 'success')
+        self._welcome()
 
     # ── цели ────────────────────────────────────────────────────────────
     def _target_rows(self) -> int:
@@ -897,12 +958,19 @@ class App:
         pygame.draw.rect(surf, theme['bg_medium'], box)
         pygame.draw.rect(surf, theme['accent'] if self.search_active else theme['border'],
                          box, 1)
-        text = self.targets.filter_text or '🔍 поиск…'
-        color = theme['fg_main'] if self.targets.filter_text else theme['muted']
-        img = book.render(text, 11, color)
-        surf.blit(img, (box.x + 6, box.centery - img.get_height() // 2))
+        if self.targets.filter_text:
+            img = book.render(self.targets.filter_text, 11, theme['fg_main'])
+            surf.blit(img, (box.x + 6, box.centery - img.get_height() // 2))
+        else:
+            # иконка поменьше, чтобы не казалась огромной
+            icon = book.render('⌕', 10, theme['muted'])
+            txt = book.render(' поиск…', 10, theme['muted'])
+            surf.blit(icon, (box.x + 6, box.centery - icon.get_height() // 2))
+            surf.blit(txt, (box.x + 6 + icon.get_width() + 2, box.centery - txt.get_height() // 2))
+            img = icon  # для курсора — ширина иконки
         if self.search_active and int(self.time * 2) % 2 == 0:
-            cx = box.x + 6 + img.get_width() + 1
+            # курсор после текста/иконки
+            cx = box.x + 6 + (book.render(self.targets.filter_text, 11, theme['fg_main']).get_width() if self.targets.filter_text else icon.get_width() + 2 + txt.get_width()) + 1
             pygame.draw.line(surf, theme['accent'], (cx, box.y + 5), (cx, box.bottom - 5))
 
         # список
@@ -936,6 +1004,20 @@ class App:
         total = book.render(f'всего: {len(self.targets.items)}', 10, theme['muted'])
         surf.blit(total, (r.right - total.get_width() - 1, r.bottom + 5))
 
+        # скролл-бар целей
+        total_rows = len(visible)
+        if total_rows > rows:
+            track = pygame.Rect(r.right - 6, r.y + 4, 3, r.height - 8)
+            pygame.draw.rect(surf, theme['bg_medium'], track)
+            frac = rows / total_rows
+            h = max(14, int(track.height * frac))
+            max_scroll = total_rows - rows
+            pos = 1.0 - (self.targets.scroll / max_scroll if max_scroll else 0.0)
+            top = track.y + int((track.height - h) * pos)
+            thumb = pygame.Rect(track.x, top, track.width, h)
+            col = theme['accent'] if self._targets_dragging else theme['fg_dim']
+            pygame.draw.rect(surf, col, thumb)
+
     # ── карта и профиль ─────────────────────────────────────────────────
     def _draw_map_and_profile(self, surf) -> None:
         theme, book = self.theme, self.book
@@ -944,8 +1026,9 @@ class App:
         p = self.player
         y = self.map.rect.bottom + 8
         x = self.center_rect.x + 12
+        name_label = p.name if (p.name and not self.typing_name) else '…'
         rows = [
-            (f'👤 {p.name or "Анон"}', 'fg_main', 12),
+            (f'👤 {name_label}', 'fg_main', 12),
             (f'💵 ${p.money}', 'accent', 12),
             (f'Взломов: {p.hacks_completed}  провалов: {p.hacks_failed}', 'fg_dim', 10),
             (f'Данных: {p.data_stolen_gb:.1f} GB', 'fg_dim', 10),
@@ -965,6 +1048,72 @@ class App:
                           chain=['jetbrains_bold', 'symbols', 'emoji'])
         surf.blit(img, (btn.centerx - img.get_width() // 2,
                         btn.centery - img.get_height() // 2))
+
+    # ── скролл-бары: метрики и drag ───────────────────────────────────
+    def _log_metrics(self):
+        r = getattr(self, 'log', None)
+        if not r:
+            return None
+        rr = r.rect
+        total = len(getattr(r, '_wrapped', []))
+        visible = getattr(r, 'visible_rows', 1)
+        if total <= visible:
+            return None
+        track = pygame.Rect(rr.right - 6, rr.y + 4, 3, rr.height - 8)
+        frac = visible / total
+        h = max(14, int(track.height * frac))
+        max_scroll = total - visible
+        # hit область чуть шире для удобства (8px)
+        hit = pygame.Rect(track.x - 3, track.y, 9, track.height)
+        pos = 1.0 - (r.scroll / max_scroll if max_scroll else 0.0)
+        top = track.y + int((track.height - h) * pos)
+        thumb = pygame.Rect(track.x, top, track.width, h)
+        return {'track': track, 'thumb': thumb, 'hit': hit, 'max': max_scroll, 'h': h}
+
+    def _targets_metrics(self):
+        r = getattr(self, 'targets_rect', None)
+        if not r:
+            return None
+        total = len(self.targets.visible())
+        rows = max(1, (r.height - 4) // self.ROW_H)
+        if total <= rows:
+            return None
+        track = pygame.Rect(r.right - 6, r.y + 4, 3, r.height - 8)
+        frac = rows / total
+        h = max(14, int(track.height * frac))
+        max_scroll = total - rows
+        hit = pygame.Rect(track.x - 3, track.y, 9, track.height)
+        # у целей scroll=0 вверху, у лога наоборот — потому разные формулы
+        pos = (self.targets.scroll / max_scroll if max_scroll else 0.0)
+        top = track.y + int((track.height - h) * pos)
+        thumb = pygame.Rect(track.x, top, track.width, h)
+        return {'track': track, 'thumb': thumb, 'hit': hit, 'max': max_scroll, 'h': h, 'rows': rows}
+
+    def _update_log_from_y(self, y: int) -> None:
+        m = self._log_metrics()
+        if not m:
+            return
+        track, h, max_scroll = m['track'], m['h'], m['max']
+        span = track.height - h
+        t = (y - m['track'].y - self._log_drag_off)
+        # если клик не по thumb, а по треку — центрируем
+        if not self._log_dragging or self._log_drag_off == 999:
+            t = y - track.y - h // 2
+        pos = max(0.0, min(1.0, t / span if span else 0))
+        self.log.scroll = int(round((1.0 - pos) * max_scroll))
+        self.log.autoscroll = self.log.scroll == 0
+
+    def _update_targets_from_y(self, y: int) -> None:
+        m = self._targets_metrics()
+        if not m:
+            return
+        track, h, max_scroll = m['track'], m['h'], m['max']
+        span = track.height - h
+        t = (y - track.y - self._targets_drag_off)
+        if not self._targets_dragging or self._targets_drag_off == 999:
+            t = y - track.y - h // 2
+        pos = max(0.0, min(1.0, t / span if span else 0))
+        self.targets.scroll = int(round(pos * max_scroll))
 
     def _draw_footer(self, surf, W: int, H: int) -> None:
         theme, book = self.theme, self.book
@@ -992,15 +1141,10 @@ class App:
         img = book.render(f'СТАТУС: {status}', 11, theme['fg_main'])
         surf.blit(img, (16, top + 29))
 
-        info = book.render(
-            f'окно: {self.size_info.describe()}  │  монитор: {self.monitor[0]}×{self.monitor[1]}'
-            f'  │  тема: {self.theme.name}', 9, theme['fg_dim'])
-        surf.blit(info, (16, top + 46))
-
         hint = book.render(
             'ВЗЛОМАТЬ — старт/стоп │ SPACE — пауза │ H — история │ M — настройки │ '
             'F1 — консоль │ F12 — экспорт лога │ ESC — выход', 9, theme['muted'])
-        surf.blit(hint, (16, top + 60))
+        surf.blit(hint, (16, top + 46))
 
     def _draw_menu(self, surf, W: int, H: int) -> None:
         """Меню настроек: строгая сетка строк, подписи не наезжают."""
@@ -1042,9 +1186,6 @@ class App:
         hint = book.render('Размер окна меняется только здесь — мышью тянуть нельзя',
                            10, theme['fg_dim'])
         surf.blit(hint, (r.x + 24, r.bottom - 78))
-        # F11 — быстрый тоггл фуллскрина (удобно)
-        hint2 = book.render('F11 — на весь экран / обратно', 9, theme['muted'])
-        surf.blit(hint2, (r.right - hint2.get_width() - 24, r.bottom - 24))
 
     # ── история атак ────────────────────────────────────────────────────
     def _draw_history(self, surf, W: int, H: int) -> None:

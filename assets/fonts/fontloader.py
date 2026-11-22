@@ -216,8 +216,8 @@ class FontBook:
         out = pg.Surface((total_w, main_h), pg.SRCALPHA)
         x = 0
         for s in surfaces:
-            # выравниваем по базовой линии «на глаз»: по низу
-            out.blit(s, (x, main_h - s.get_height()))
+            # центрируем по вертикали — иначе иконки (✖, 🔍, 💾) «прыгают» относительно текста
+            out.blit(s, (x, (main_h - s.get_height()) // 2))
             x += s.get_width()
         return RenderedText(out, self.render_scale, self.render_scale)
 
