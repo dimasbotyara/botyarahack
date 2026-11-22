@@ -47,7 +47,7 @@ python3 -m venv .venv
 
 | | Feature | |
 |---|---|---|
-| 🖥 | **Autofit window** | picks 92% of screen width / 86% of height, keeps 1350×850 proportions, never more than 150% |
+| 🖥 | **Autofit window** | picks 94% of screen width / 89% of height, keeps 1152×726 proportions, never more than 175% |
 | 🔒 | **No drag-resize** | the window can't be pulled by mouse — the size lives in settings only |
 | 🎨 | **5 themes** | Matrix Green, Cyberpunk, Blood Red, Ocean Blue, Retro Amber — switch without restart |
 | 📜 | **Live log** | coloured lines, word wrap, scrollback, 4000-line cap |
@@ -90,7 +90,7 @@ gamedev/                new pygame version
   display.py            window size math for any monitor
   settings.py           settings, shared with the tkinter version
   theme.py              palettes, colour dimming
-  screen.py             logical 1350×850 canvas + scaling
+  screen.py             logical 1152×726 canvas + scaling
   widgets.py            buttons, panels, dropdowns, checkboxes, sliders
   background.py         matrix rain
   attack.py             hack simulation: a dt-driven state machine, no threads
