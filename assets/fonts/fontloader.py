@@ -14,6 +14,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pygame
+
 FONTS_DIR = Path(__file__).resolve().parent
 
 # ── Шрифты, которые лежат в репозитории ──────────────────────────────────
@@ -40,6 +42,79 @@ DEFAULT_CHAIN = ['jetbrains', 'symbols', 'emoji']
 BOLD_CHAIN = ['jetbrains_bold', 'symbols', 'emoji']
 
 
+class RenderedText(pygame.Surface):
+    """Отрендеренная строка: растр в реальных пикселях, габариты — в логических.
+
+    book.render рендерит текст в размере окна (без последующего
+    масштабирования картинки), поэтому возвращает не обычную Surface,
+    а подкласс с переопределёнными get_width/get_height → логические.
+    При этом буфер остаётся в размере окна, и обычный
+    pygame.Surface.blit на него просто кладёт пиксели (для тестов minigames),
+    а Canvas распознаёт его по маркеру и не масштабирует.
+    """
+
+    is_rendered_text = True
+
+    def __init__(self, real: pygame.Surface, scale_x: float, scale_y: float):
+        w, h = real.get_size()
+        # HD-буфер — реальный размер
+        super().__init__((w, h), pygame.SRCALPHA)
+        super().blit(real, (0, 0))
+        self._sx = scale_x or 1.0
+        self._sy = scale_y or 1.0
+        self._lw = round(w / self._sx) if self._sx else w
+        self._lh = round(h / self._sy) if self._sy else h
+
+    @property
+    def real(self) -> pygame.Surface:
+        # совместимость: canvas ждёт .real
+        return self
+
+    def get_width(self) -> int:  # type: ignore[override]
+        return self._lw
+
+    def get_height(self) -> int:  # type: ignore[override]
+        return self._lh
+
+    def get_size(self) -> tuple[int, int]:  # type: ignore[override]
+        return (self._lw, self._lh)
+
+    def copy(self) -> 'RenderedText':  # type: ignore[override]
+        w, h = pygame.Surface.get_size(self)
+        hd = pygame.Surface((w, h), pygame.SRCALPHA)
+        pygame.Surface.blit(hd, self, (0, 0))
+        rt = RenderedText.__new__(RenderedText)
+        pygame.Surface.__init__(rt, (w, h), pygame.SRCALPHA)
+        pygame.Surface.blit(rt, hd, (0, 0))
+        rt._sx = self._sx
+        rt._sy = self._sy
+        rt._lw = self._lw
+        rt._lh = self._lh
+        return rt
+
+    def subsurface(self, rect) -> 'RenderedText':  # type: ignore[override]
+        """Кроп в логических координатах (обрезка длинных строк)."""
+        x, y, w, h = rect
+        rw, rh = pygame.Surface.get_size(self)
+        x0 = max(0, round(x * self._sx))
+        y0 = max(0, round(y * self._sy))
+        x1 = min(rw, max(x0 + 1, round((x + w) * self._sx)))
+        y1 = min(rh, max(y0 + 1, round((y + h) * self._sy)))
+        cw, ch = x1 - x0, y1 - y0
+        hd_crop = pygame.Surface((cw, ch), pygame.SRCALPHA)
+        pygame.Surface.blit(hd_crop, self, (0, 0), (x0, y0, cw, ch))
+        rt = RenderedText.__new__(RenderedText)
+        pygame.Surface.__init__(rt, (cw, ch), pygame.SRCALPHA)
+        pygame.Surface.blit(rt, hd_crop, (0, 0))
+        rt._sx = self._sx
+        rt._sy = self._sy
+        rt._lw = max(1, round(cw / self._sx)) if self._sx else cw
+        rt._lh = max(1, round(ch / self._sy)) if self._sy else ch
+        rt._lw = min(self._lw - x, rt._lw)
+        rt._lh = min(self._lh - y, rt._lh)
+        return rt
+
+
 class FontBook:
     """Кэш pygame.Font + рендер строки с фолбэком по глифам."""
 
@@ -48,7 +123,9 @@ class FontBook:
 
     def __init__(self, pygame_module):
         self.pg = pygame_module
+        self.render_scale = 1.0   # ставит Screen: пикселей окна на логический
         self._fonts: dict[tuple[str, int], object] = {}
+        self._fonts_hd: dict[tuple[str, int], object] = {}
         self._coverage: dict[str, set[int]] = {}
         self._cache: dict[tuple, object] = {}
         self._cache_order: list[tuple] = []
@@ -68,6 +145,15 @@ class FontBook:
             self._fonts[key] = self.pg.font.Font(str(path), size)
         return self._fonts[key]
 
+    def _font_hd(self, name: str, size: int):
+        """Шрифт в реальном размере окна — для рендера без ресемплинга."""
+        real = max(1, round(size * self.render_scale))
+        key = (name, real)
+        if key not in self._fonts_hd:
+            path = FONTS_DIR / MAIN_FONTS.get(name, FALLBACK_FONTS.get(name, name))
+            self._fonts_hd[key] = self.pg.font.Font(str(path), real)
+        return self._fonts_hd[key]
+
     # ── покрытие глифов ─────────────────────────────────────────────────
     def covers(self, name: str, ch: str) -> bool:
         """Есть ли у шрифта глиф для символа (по ширине + запасному тесту)."""
@@ -82,9 +168,11 @@ class FontBook:
 
         Результат кэшируется: интерфейс перерисовывает одни и те же
         подписи каждый кадр, а рендер шрифта — самая дорогая операция.
+        Растр создаётся сразу в размере окна (render_scale) — текст
+        остаётся чётким при любом масштабе окна.
         """
         chain = chain or DEFAULT_CHAIN
-        key = (text, size, tuple(color), tuple(chain))
+        key = (text, size, tuple(color), tuple(chain), round(self.render_scale, 3))
         cached = self._cache.get(key)
         if cached is not None:
             return cached
@@ -98,7 +186,7 @@ class FontBook:
 
     def _render_uncached(self, text, size, color, chain):
         pg = self.pg
-        main = self.font(chain[0], size)
+        main = self._font_hd(chain[0], size)
         main_h = max(1, main.get_height())
 
         # разбиваем на куски «подряд идущие символы одного шрифта»
@@ -117,11 +205,12 @@ class FontBook:
             part = ''.join(c for c in part if c not in _INVISIBLE)
             if not part:
                 continue
-            font = self.font(owner, size)
+            font = self._font_hd(owner, size)
             surfaces.append(font.render(part, True, color))
 
         if not surfaces:
-            return pg.Surface((0, main_h), pg.SRCALPHA)
+            return RenderedText(pg.Surface((0, main_h), pg.SRCALPHA),
+                                self.render_scale, self.render_scale)
 
         total_w = sum(s.get_width() for s in surfaces)
         out = pg.Surface((total_w, main_h), pg.SRCALPHA)
@@ -130,7 +219,7 @@ class FontBook:
             # выравниваем по базовой линии «на глаз»: по низу
             out.blit(s, (x, main_h - s.get_height()))
             x += s.get_width()
-        return out
+        return RenderedText(out, self.render_scale, self.render_scale)
 
     def size(self, text: str, size: int, chain=None) -> tuple[int, int]:
         """Ширина/высота строки с учётом фолбэков (для верстки)."""
@@ -218,9 +307,9 @@ if __name__ == '__main__':
     out.parent.mkdir(exist_ok=True, parents=True)
     big = pygame.Surface((max(900, surf.get_width() + 40), 220))
     big.fill((8, 10, 8))
-    big.blit(book.render(sample, 26, (0, 255, 0)), (20, 20))
-    big.blit(book.render('Мини-игра: 🪨 Камень ✂️ Ножницы 📄 Бумага', 26, (255, 204, 0)), (20, 70))
-    big.blit(book.render('Атака на github → ✓ Защита обойдена ⏱ 25 сек', 26, (0, 200, 255)), (20, 120))
-    big.blit(book.render('♻ Сбросить профиль │ 👤 Анон │ 💵 $1234', 26, (200, 140, 255)), (20, 170))
+    big.blit(book.render(sample, 26, (0, 255, 0)).real, (20, 20))
+    big.blit(book.render('Мини-игра: 🪨 Камень ✂️ Ножницы 📄 Бумага', 26, (255, 204, 0)).real, (20, 70))
+    big.blit(book.render('Атака на github → ✓ Защита обойдена ⏱ 25 сек', 26, (0, 200, 255)).real, (20, 120))
+    big.blit(book.render('♻ Сбросить профиль │ 👤 Анон │ 💵 $1234', 26, (200, 140, 255)).real, (20, 170))
     pygame.image.save(big, str(out))
     print('картинка:', out)

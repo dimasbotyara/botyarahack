@@ -31,6 +31,14 @@ def render(out_dir: Path) -> list[Path]:
     saved: list[Path] = []
 
     app = App()
+    # Превью всегда в 1× — без масштаба окна, чтобы артефакты сжатия не
+    # портили картинку. В игре масштаб задаёт окно, здесь фиксируем его.
+    from gamedev.screen import Screen
+    app.window = pygame.display.set_mode((config.LOGICAL_W, config.LOGICAL_H))
+    app.screen = Screen(app.window, smooth=True, book=app.book)
+    # dummy-монитор 1024×768 резал бы окно — фиксируем 1× вручную
+    from gamedev.display import WindowSize
+    app.size_info = WindowSize(width=config.LOGICAL_W, height=config.LOGICAL_H, scale=1.0, mode='1.0')
 
     # кадр 1: главный экран, тёмная базовая тема
     app.time = 1.5

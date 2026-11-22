@@ -62,13 +62,15 @@ class App:
         info = pygame.display.Info()
         self.monitor = (info.current_w, info.current_h)
         size = compute_size(*self.monitor, mode=self.settings.window_scale)
-        self.window = pygame.display.set_mode((size.width, size.height))
+        self.window = pygame.display.set_mode(
+            (size.width, size.height), self._window_flags())
         self.size_info = size
 
         from assets.fonts.fontloader import FontBook
         self.book = FontBook(pygame)
 
-        self.screen = Screen(self.window, smooth=self.settings.smooth_scaling)
+        self.screen = Screen(self.window, smooth=self.settings.smooth_scaling,
+                             book=self.book)
         self.clock = pygame.time.Clock()
         self.running = True
         self.time = 0.0
@@ -154,15 +156,19 @@ class App:
     def _build_menu_ui(self) -> None:
         """Меню настроек: тема, размер окна, чекбоксы, слайдер."""
         W, H = config.LOGICAL_W, config.LOGICAL_H
-        panel_w, panel_h = 580, 520
+        panel_w, panel_h = 580, 560
         px, py = (W - panel_w) // 2, (H - panel_h) // 2
         self.menu_rect = pygame.Rect(px, py, panel_w, panel_h)
 
         x0, x1 = px + 30, px + 300
         row1 = py + 88          # подпись + выпадающие списки
         row2 = row1 + 92        # предпросмотр размера + шанс мини-игры
-        row3 = row2 + 74        # чекбоксы
+        row3 = row2 + 78        # чекбоксы
+        row4 = row3 + 68        # режим окна
 
+        # подписи к размеру пересчитываются под монитор (см. _refresh_size_options)
+        from .display import available_presets_for_monitor
+        size_opts = available_presets_for_monitor(self.monitor[0], self.monitor[1])
         self.theme_dd = Dropdown(
             rect=pygame.Rect(x0, row1, 230, 26),
             options=Theme.all_themes(),
@@ -171,9 +177,15 @@ class App:
 
         self.size_dd = Dropdown(
             rect=pygame.Rect(x1, row1, 230, 26),
-            options=config.WINDOW_PRESETS,
+            options=size_opts,
             value=self.settings.window_scale,
             on_change=self._on_size_change)
+
+        self.window_mode_dd = Dropdown(
+            rect=pygame.Rect(x0, row4, 230, 26),
+            options=config.WINDOW_MODES,
+            value=self.settings.window_mode,
+            on_change=self._on_window_mode_change)
 
         self.chance_slider = Slider(
             rect=pygame.Rect(x0, row2, 230, 20),
@@ -196,7 +208,8 @@ class App:
             on_change=self._on_smooth_change)
 
         y = py + panel_h - 46
-        self.menu_widgets = [self.theme_dd, self.size_dd, self.chance_slider,
+        self.menu_widgets = [self.theme_dd, self.size_dd, self.window_mode_dd,
+                             self.chance_slider,
                              self.glitches_cb, self.calc_cb, self.smooth_cb]
         self.menu_buttons = [
             Button(rect=pygame.Rect(px + panel_w - 140, y, 110, 28),
@@ -373,6 +386,23 @@ class App:
             self.attack_btn.rect = pygame.Rect(
                 LEFT_X + 12, config.LOGICAL_H - FOOTER_H - 58, LEFT_W - 24, 36)
 
+    def _on_window_mode_change(self, key: str) -> None:
+        self.settings.window_mode = key
+        self.apply_window_size()
+
+    def _window_flags(self) -> int:
+        m = getattr(self.settings, 'window_mode', 'windowed')
+        if m == 'fullscreen':
+            return pygame.FULLSCREEN
+        if m == 'borderless':
+            return pygame.NOFRAME
+        return 0
+
+    def _refresh_size_options(self) -> None:
+        from .display import available_presets_for_monitor
+        self.size_dd.options = available_presets_for_monitor(
+            self.monitor[0], self.monitor[1])
+
     def _on_chance_change(self, value: int) -> None:
         self.settings.minigame_chance = int(value)
 
@@ -393,14 +423,28 @@ class App:
         info = pygame.display.Info()
         self.monitor = (info.current_w, info.current_h)
         self.size_info = compute_size(*self.monitor, mode=self.settings.window_scale)
-        self.window = pygame.display.set_mode(
-            (self.size_info.width, self.size_info.height))
-        self.screen = Screen(self.window, smooth=self.settings.smooth_scaling)
+        flags = self._window_flags()
+        # для borderless-windowed на весь экран — берём размер монитора
+        w, h = self.size_info.width, self.size_info.height
+        if getattr(self.settings, 'window_mode', 'windowed') == 'borderless':
+            # windowed fullscreen = без рамки на весь десктоп
+            w, h = info.current_w, info.current_h
+            # если в dummy-драйвере монитор 1024×768 — не даём 0
+            if w and h:
+                self.size_info = compute_size(w, h, mode='auto')
+        self.window = pygame.display.set_mode((w, h), flags)
+        self.screen = Screen(self.window, smooth=self.settings.smooth_scaling,
+                             book=self.book)
+        # подписи в дропдауне размера зависят от монитора
+        if hasattr(self, 'size_dd'):
+            self._refresh_size_options()
 
     def open_menu(self) -> None:
         self.menu_open = True
+        self._refresh_size_options()
         self.theme_dd.value = self.settings.theme
         self.size_dd.value = self.settings.window_scale
+        self.window_mode_dd.value = self.settings.window_mode
         self.chance_slider.value = self.settings.minigame_chance
         self.glitches_cb.checked = self.settings.glitch_enabled
         self.calc_cb.checked = self.settings.show_calculations
@@ -409,6 +453,10 @@ class App:
     def save_and_close(self) -> None:
         self.settings.save()
         self.menu_open = False
+
+    def _history_rect(self) -> pygame.Rect:
+        return pygame.Rect((config.LOGICAL_W - 760) // 2,
+                           (config.LOGICAL_H - 500) // 2, 760, 500)
 
     def _toggle_history(self) -> None:
         self.history_open = not self.history_open
@@ -539,28 +587,61 @@ class App:
                     self.paused = not self.paused
                     self.log_line('⏸ Пауза' if self.paused else '▶ Продолжаю', 'warning')
                     continue
-                if event.key == pygame.K_F11 and self.menu_open:
-                    self.save_and_close()
+                if event.key == pygame.K_F11:
+                    # F11 — тоггл фуллскрина в любой момент (в меню не сейвим)
+                    if not self.menu_open:
+                        cur = self.settings.window_mode
+                        self.settings.window_mode = 'fullscreen' if cur != 'fullscreen' else 'windowed'
+                        self.apply_window_size()
+                    else:
+                        self.save_and_close()
                     continue
                 if not self.menu_open and self.log.handle(event):
                     continue
 
+            # оверлей истории — клик мимо закрывает, колёсико прокручивает
+            if self.history_open:
+                if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+                    if not self._history_rect().collidepoint(self.screen.to_logical(event.pos)):
+                        self.history_open = False
+                        continue
+                if event.type == pygame.MOUSEWHEEL:
+                    pos = getattr(event, 'pos', None) or pygame.mouse.get_pos()
+                    if self._history_rect().collidepoint(self.screen.to_logical(pos)):
+                        self.history_scroll = max(0, self.history_scroll - event.y)
+                    continue
+                if event.type == pygame.KEYDOWN and event.key in (pygame.K_UP, pygame.K_DOWN):
+                    step = 1 if event.key == pygame.K_UP else -1
+                    self.history_scroll = max(0, self.history_scroll + step)
+                    continue
+                # любой другой клик/клавиша внутри оверлея — гасим
+                if event.type in (pygame.MOUSEBUTTONDOWN, pygame.MOUSEBUTTONUP,
+                                  pygame.MOUSEWHEEL, pygame.KEYDOWN):
+                    continue
+                if event.type == pygame.MOUSEMOTION:
+                    continue
+
             if self.menu_open:
-                if self.theme_dd.open and self.theme_dd.handle(self._menu_event(event)):
-                    continue
-                if self.size_dd.open and self.size_dd.handle(self._menu_event(event)):
-                    continue
-                # клик за пределами оверлея — закрыть настройки
-                if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1 and \
-                        not self.menu_rect.collidepoint(self.screen.to_logical(event.pos)):
-                    self.theme_dd.open = False
-                    self.size_dd.open = False
-                    self.menu_open = False
-                    continue
-                for w in self.menu_widgets:
-                    w.handle(self._menu_event(event))
-                for b in self.menu_buttons:
-                    b.handle(self._menu_event(event))
+                for dd in (self.theme_dd, self.size_dd, self.window_mode_dd):
+                    if dd.open and dd.handle(self._menu_event(event)):
+                        break
+                else:
+                    # ни один дропдаун не съел событие — проверяем клик мимо
+                    if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1 and \
+                            not self.menu_rect.collidepoint(self.screen.to_logical(event.pos)):
+                        for dd in (self.theme_dd, self.size_dd, self.window_mode_dd):
+                            dd.open = False
+                        self.menu_open = False
+                        continue
+                    # обычный клик внутри меню — дать виджетам шанс
+                    if event.type not in (pygame.KEYDOWN,):
+                        for w in self.menu_widgets:
+                            if w not in (self.theme_dd, self.size_dd, self.window_mode_dd):
+                                w.handle(self._menu_event(event))
+                        for b in self.menu_buttons:
+                            b.handle(self._menu_event(event))
+                        continue
+                continue
                 continue
 
             if self.skills_open:
@@ -947,8 +1028,9 @@ class App:
         self._menu_caption(surf, 'Эффекты', self.glitches_cb.rect.x,
                            y=self.glitches_cb.rect.y - 24)
         self._menu_caption(surf, 'Масштабирование', self.smooth_cb.rect)
+        self._menu_caption(surf, 'Режим окна', self.window_mode_dd.rect)
 
-        dropdowns = [self.theme_dd, self.size_dd]
+        dropdowns = [self.theme_dd, self.size_dd, self.window_mode_dd]
         for w in self.menu_widgets:
             if w not in dropdowns:
                 w.draw(surf, theme, book)
@@ -960,14 +1042,16 @@ class App:
         hint = book.render('Размер окна меняется только здесь — мышью тянуть нельзя',
                            10, theme['fg_dim'])
         surf.blit(hint, (r.x + 24, r.bottom - 78))
+        # F11 — быстрый тоггл фуллскрина (удобно)
+        hint2 = book.render('F11 — на весь экран / обратно', 9, theme['muted'])
+        surf.blit(hint2, (r.right - hint2.get_width() - 24, r.bottom - 24))
 
     # ── история атак ────────────────────────────────────────────────────
     def _draw_history(self, surf, W: int, H: int) -> None:
         theme, book = self.theme, self.book
         dim_surface(surf, 180)
 
-        w, h = 760, 500
-        r = pygame.Rect((W - w) // 2, (H - h) // 2, w, h)
+        r = self._history_rect()
         pygame.draw.rect(surf, theme['bg_dark'], r)
         pygame.draw.rect(surf, theme['accent'], r, 1)
 

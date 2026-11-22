@@ -79,6 +79,36 @@ def normalize_mode(mode: str | None) -> str:
     return config.WINDOW_SCALE_DEFAULT
 
 
+def normalize_window_mode(mode: str | None) -> str:
+    valid = {k for k, _ in config.WINDOW_MODES}
+    if mode in valid:
+        return mode
+    return config.WINDOW_MODE_DEFAULT
+
+
 def available_modes() -> list[tuple[str, str]]:
     """Список (значение, подпись) для меню настроек."""
     return list(config.WINDOW_PRESETS)
+
+
+def preset_label(screen_w: int, screen_h: int, key: str) -> str:
+    """Человекочитаемая подпись с авторасчётом: 'Средний (75%, 864×544)'."""
+    ws = compute_size(screen_w, screen_h, key)
+    base = config.WINDOW_PRESET_NAMES.get(key, key)
+    if key == 'auto':
+        # Авто — показываем итоговый размер и масштаб
+        return f'{base} ({ws.width}×{ws.height}, {ws.scale * 100:.0f}%)'
+    try:
+        pct = int(round(float(key) * 100))
+    except Exception:
+        pct = int(ws.scale * 100)
+    return f'{base} ({pct}%, {ws.width}×{ws.height})'
+
+
+def available_presets_for_monitor(screen_w: int, screen_h: int) -> list[tuple[str, str]]:
+    """Список пресетов с подписями, пересчитанными под текущий монитор."""
+    return [(k, preset_label(screen_w, screen_h, k)) for k, _ in config.WINDOW_PRESETS]
+
+
+def available_window_modes() -> list[tuple[str, str]]:
+    return list(config.WINDOW_MODES)

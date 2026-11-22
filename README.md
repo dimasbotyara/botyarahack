@@ -68,7 +68,7 @@ python3 -m venv .venv
 | `Space` | ⏸ pause / continue |
 | `Esc` | ⏹ cancel attack → close menu → quit |
 | `M` | ⚙ settings |
-| click outside the settings overlay | ✖ close settings |
+| click outside the settings/history overlay | ✖ close overlay |
 | `H` | 📜 attack history |
 | `F1` or `` ` `` | 🖥 debug console |
 | `F12` | 💾 export log to file |
