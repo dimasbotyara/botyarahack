@@ -34,7 +34,7 @@ from .profile import MAX_LEVEL, SKILLS, Player, skill_cost
 from .screen import Screen
 from .settings import Settings
 from .targets import TargetList
-from .theme import Theme
+from .theme import Theme, dim_surface
 from .widgets import Button, Checkbox, Dropdown, Label, Panel, Slider
 
 # ── геометрия Этапа 2 ───────────────────────────────────────────────────
@@ -68,7 +68,7 @@ class App:
         from assets.fonts.fontloader import FontBook
         self.book = FontBook(pygame)
 
-        self.screen = Screen(self.window)
+        self.screen = Screen(self.window, smooth=self.settings.smooth_scaling)
         self.clock = pygame.time.Clock()
         self.running = True
         self.time = 0.0
@@ -190,9 +190,14 @@ class App:
             checked=self.settings.show_calculations,
             on_change=self._on_calc_change)
 
+        self.smooth_cb = Checkbox(
+            rect=pygame.Rect(x0, row3, 230, 20), text='Плавное масштабирование',
+            checked=self.settings.smooth_scaling,
+            on_change=self._on_smooth_change)
+
         y = py + panel_h - 46
         self.menu_widgets = [self.theme_dd, self.size_dd, self.chance_slider,
-                             self.glitches_cb, self.calc_cb]
+                             self.glitches_cb, self.calc_cb, self.smooth_cb]
         self.menu_buttons = [
             Button(rect=pygame.Rect(px + panel_w - 140, y, 110, 28),
                    text='💾 Сохранить', size=11, accent=True,
@@ -379,6 +384,10 @@ class App:
         if self.attack:
             self.attack.show_calculations = value
 
+    def _on_smooth_change(self, value: bool) -> None:
+        self.settings.smooth_scaling = value
+        self.screen.smooth = value      # применяется сразу, без рестарта
+
     def apply_window_size(self) -> None:
         """Пересчитывает и применяет размер окна (только через настройки)."""
         info = pygame.display.Info()
@@ -386,7 +395,7 @@ class App:
         self.size_info = compute_size(*self.monitor, mode=self.settings.window_scale)
         self.window = pygame.display.set_mode(
             (self.size_info.width, self.size_info.height))
-        self.screen = Screen(self.window)
+        self.screen = Screen(self.window, smooth=self.settings.smooth_scaling)
 
     def open_menu(self) -> None:
         self.menu_open = True
@@ -395,6 +404,7 @@ class App:
         self.chance_slider.value = self.settings.minigame_chance
         self.glitches_cb.checked = self.settings.glitch_enabled
         self.calc_cb.checked = self.settings.show_calculations
+        self.smooth_cb.checked = self.settings.smooth_scaling
 
     def save_and_close(self) -> None:
         self.settings.save()
@@ -539,6 +549,13 @@ class App:
                 if self.theme_dd.open and self.theme_dd.handle(self._menu_event(event)):
                     continue
                 if self.size_dd.open and self.size_dd.handle(self._menu_event(event)):
+                    continue
+                # клик за пределами оверлея — закрыть настройки
+                if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1 and \
+                        not self.menu_rect.collidepoint(self.screen.to_logical(event.pos)):
+                    self.theme_dd.open = False
+                    self.size_dd.open = False
+                    self.menu_open = False
                     continue
                 for w in self.menu_widgets:
                     w.handle(self._menu_event(event))
@@ -907,10 +924,7 @@ class App:
     def _draw_menu(self, surf, W: int, H: int) -> None:
         """Меню настроек: строгая сетка строк, подписи не наезжают."""
         theme, book = self.theme, self.book
-        dim = pygame.Surface((W, H))
-        dim.fill((0, 0, 0))
-        dim.set_alpha(170)
-        surf.blit(dim, (0, 0))
+        dim_surface(surf, 170)
 
         r = self.menu_rect
         pygame.draw.rect(surf, theme['bg_dark'], r)
@@ -932,6 +946,7 @@ class App:
 
         self._menu_caption(surf, 'Эффекты', self.glitches_cb.rect.x,
                            y=self.glitches_cb.rect.y - 24)
+        self._menu_caption(surf, 'Масштабирование', self.smooth_cb.rect)
 
         dropdowns = [self.theme_dd, self.size_dd]
         for w in self.menu_widgets:
@@ -949,10 +964,7 @@ class App:
     # ── история атак ────────────────────────────────────────────────────
     def _draw_history(self, surf, W: int, H: int) -> None:
         theme, book = self.theme, self.book
-        dim = pygame.Surface((W, H))
-        dim.fill((0, 0, 0))
-        dim.set_alpha(180)
-        surf.blit(dim, (0, 0))
+        dim_surface(surf, 180)
 
         w, h = 760, 500
         r = pygame.Rect((W - w) // 2, (H - h) // 2, w, h)
@@ -1001,10 +1013,7 @@ class App:
     # ── консоль отладки ─────────────────────────────────────────────────
     def _draw_console(self, surf, W: int, H: int) -> None:
         theme, book = self.theme, self.book
-        dim = pygame.Surface((W, H))
-        dim.fill((0, 0, 0))
-        dim.set_alpha(190)
-        surf.blit(dim, (0, 0))
+        dim_surface(surf, 190)
 
         w, h = 820, 460
         r = pygame.Rect((W - w) // 2, (H - h) // 2, w, h)
@@ -1055,10 +1064,7 @@ class App:
 
     def _draw_skills(self, surf, W: int, H: int) -> None:
         theme, book = self.theme, self.book
-        dim = pygame.Surface((W, H))
-        dim.fill((0, 0, 0))
-        dim.set_alpha(170)
-        surf.blit(dim, (0, 0))
+        dim_surface(surf, 170)
 
         self._layout_skills()
         r = self.skills_modal
@@ -1109,10 +1115,7 @@ class App:
     # ── ввод имени ──────────────────────────────────────────────────────
     def _draw_name_prompt(self, surf, W: int, H: int) -> None:
         theme, book = self.theme, self.book
-        dim = pygame.Surface((W, H))
-        dim.fill((0, 0, 0))
-        dim.set_alpha(190)
-        surf.blit(dim, (0, 0))
+        dim_surface(surf, 190)
 
         box = pygame.Rect((W - 520) // 2, (H - 200) // 2, 520, 200)
         pygame.draw.rect(surf, theme['bg_dark'], box)

@@ -49,6 +49,7 @@ python3 -m venv .venv
 |---|---|---|
 | 🖥 | **Autofit window** | picks 94% of screen width / 89% of height, keeps 1152×726 proportions, never more than 175% |
 | 🔒 | **No drag-resize** | the window can't be pulled by mouse — the size lives in settings only |
+| ✨ | **Smooth scaling** | the UI scales up to the window crisp and blur-free; on by default, toggle in settings |
 | 🎨 | **5 themes** | Matrix Green, Cyberpunk, Blood Red, Ocean Blue, Retro Amber — switch without restart |
 | 📜 | **Live log** | coloured lines, word wrap, scrollback, 4000-line cap |
 | 🎯 | **Targets** | queue by click order, search, add your own |
@@ -67,6 +68,7 @@ python3 -m venv .venv
 | `Space` | ⏸ pause / continue |
 | `Esc` | ⏹ cancel attack → close menu → quit |
 | `M` | ⚙ settings |
+| click outside the settings overlay | ✖ close settings |
 | `H` | 📜 attack history |
 | `F1` or `` ` `` | 🖥 debug console |
 | `F12` | 💾 export log to file |
