@@ -36,9 +36,12 @@ def _legacy_lists():
     return out
 
 
-def _run(attack, limit=900.0, step=0.1):
+def _run(attack, limit=900.0, step=0.1, win=True):
+    """Промотать симуляцию; мини-игры считаем пройденными (win) или проваленными."""
     t = 0.0
     while not attack.finished and t < limit:
+        if attack.minigame:
+            attack.resolve_minigame(win)
         attack.update(step)
         t += step
     return t
@@ -127,6 +130,46 @@ def test_single_frame_output_capped():
     assert len(a.drain()) < 40, 'за кадр вывалилась куча строк'
 
 
+def test_minigame_blocks_engine_until_resolved():
+    """Движок ждёт исхода мини-игры и не пишет в лог."""
+    a = _attack(chance=100, seed=3)
+    for _ in range(3000):
+        a.update(0.05)
+        if a.minigame:
+            break
+    assert a.minigame, 'мини-игра не запрошена'
+    a.drain()
+    for _ in range(50):
+        a.update(0.05)
+    assert a.drain() == [], 'движок пишет в лог, пока идёт мини-игра'
+    assert a.phase == 'minigame'
+
+    a.resolve_minigame(True)
+    assert a.phase == 'exploit'
+    for _ in range(20):
+        a.update(0.05)
+    assert a.drain(), 'после победы движок не продолжил'
+
+
+def test_minigame_fail_skips_target_and_continues():
+    a = _attack(targets=['a / a.com', 'b / b.com'], chance=100, seed=3)
+    for _ in range(3000):
+        a.update(0.05)
+        if a.minigame:
+            break
+    a.resolve_minigame(False)
+    assert a.failed == 1
+    assert a.idx == 1, 'после провала не перешли к следующей цели'
+    assert a.phase == 'recon', 'движок застрял в фазе мини-игры'
+    for _ in range(400):
+        if a.minigame:                       # вторая цель тоже под защитой
+            a.resolve_minigame(True)
+        a.update(0.05)
+        if a.finished:
+            break
+    assert a.finished, 'движок не дошёл до конца после провала'
+
+
 def test_own_address_easter_egg():
     a = _attack(targets=['127.0.0.1 / localhost'], seed=5)
     a.update(0.1)
@@ -137,7 +180,7 @@ def test_own_address_easter_egg():
 def test_failed_minigame_counts_as_failure():
     """При провале защиты цель не засчитывается успешной (баг legacy исправлен)."""
     a = _attack(targets=['a / a.com'], chance=100, seed=1)
-    _run(a, limit=300)
+    _run(a, limit=300, win=False)
     assert a.completed + a.failed == 1
     if a.failed:
         assert a.completed == 0

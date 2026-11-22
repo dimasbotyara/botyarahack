@@ -141,6 +141,59 @@ def render(out_dir: Path) -> list[Path]:
     pygame.image.save(app.screen.surface.copy(), str(p))
     saved.append(p)
 
+    # ── Этап 4: мини-игры ──
+    app.search_active = False
+    app.targets.filter_text = ''
+    app.settings.window_scale = '0.8'
+    app.apply_window_size()
+    app._resize_log()
+    app._layout_panels(config.LOGICAL_W, config.LOGICAL_H)
+    app.attack_btn.rect = pygame.Rect(
+        8 + 12, config.LOGICAL_H - 74 - 58, 300 - 24, 36)
+
+    from gamedev.minigames import make_game
+    import random as _random
+
+    app.attack = __import__('gamedev.attack', fromlist=['Attack']).Attack(
+        targets=['github / github.com'],
+        params=__import__('gamedev.attack', fromlist=['mode_params'])
+        .mode_params('normal'),
+        minigame_chance=100, show_calculations=True, rng=_random.Random(5))
+    for _ in range(400):
+        app.attack.update(0.05)
+        if app.attack.minigame:
+            break
+    app.log.append(app.attack.drain())
+
+    for name, fname in [('Лабиринт', 'stage4-maze'),
+                        ('Бомба', 'stage4-bomb'),
+                        ('Набор кода', 'stage4-typecode'),
+                        ('Сейф', 'stage4-safe')]:
+        app.minigame = make_game('github / github.com', _random.Random(7), name=name)
+        for _ in range(15):
+            app.minigame.update(0.08)
+        if name == 'Набор кода':
+            app.minigame.typed = app.minigame.code[:5] + 'x'
+        if name == 'Сейф':
+            app.minigame.typed = '42'
+            app.minigame.history = [77, 23]
+            app.minigame.lo, app.minigame.hi = 24, 76
+        app.draw()
+        p = out_dir / f'{fname}.png'
+        pygame.image.save(app.screen.surface.copy(), str(p))
+        saved.append(p)
+
+    # кадр: победа в мини-игре (чистый лабиринт с исходом)
+    app.minigame = make_game('github / github.com', _random.Random(7), name='Лабиринт')
+    for _ in range(15):
+        app.minigame.update(0.08)
+    app.minigame.result = True
+    app.minigame.result_text = '🎉 ВЫХОД НАЙДЕН за 14 ходов'
+    app.draw()
+    p = out_dir / 'stage4-maze-win.png'
+    pygame.image.save(app.screen.surface.copy(), str(p))
+    saved.append(p)
+
     print(f'окно: {app.size_info.describe()}, монитор: {app.monitor}')
     pygame.quit()
     return saved

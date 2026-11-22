@@ -28,6 +28,7 @@ from .attackmap import AttackMap
 from .background import MatrixRain
 from .display import compute_size
 from .logpanel import LogView
+from .minigames import Minigame, make_game
 from .profile import MAX_LEVEL, SKILLS, Player, skill_cost
 from .screen import Screen
 from .settings import Settings
@@ -87,6 +88,8 @@ class App:
         self.search_active = False
         self.skills_hover = False
         self.name_rect = pygame.Rect(0, 0, 0, 0)
+        self.minigame: Minigame | None = None
+        self.minigame_rng = random.Random()
 
         self._build_main_ui()
         self._build_menu_ui()
@@ -257,6 +260,30 @@ class App:
         self.log_line('⚠ Цель не выбрана, атакую случайную', 'warning')
         return [target]
 
+    RESULT_PAUSE = 1.1        # секунд показать «победа/провал» перед закрытием
+
+    def _pump_minigame(self, dt: float) -> None:
+        """Обновить мини-игру и вернуть исход в движок, когда он готов."""
+        if self.minigame is not None:
+            self.minigame.update(dt)
+            if self.minigame.result is not None and \
+                    self.minigame.finished >= self.RESULT_PAUSE:
+                self._close_minigame()
+            return
+        if self.attack is not None and self.attack.minigame:
+            self.minigame = make_game(self.attack.current_target,
+                                      rng=self.minigame_rng)
+            self.log_line(f'  ⚠ ИГРА: {self.minigame.title.split(":")[0].strip()}', 'minigame')
+
+    def _close_minigame(self) -> None:
+        """Мини-игра закончилась — сообщаем движку и убираем окно."""
+        if self.minigame is None:
+            return
+        won = bool(self.minigame.result)
+        self.minigame = None
+        if self.attack is not None:
+            self.attack.resolve_minigame(won)
+
     def _pump_attack(self, dt: float) -> None:
         if self.attack is None:
             return
@@ -342,6 +369,7 @@ class App:
             self.handle_events()
             self.matrix.update(dt)
             self.map.update(dt)
+            self._pump_minigame(dt)
             self._pump_attack(min(dt, 0.1))
             self.draw()
             pygame.display.flip()
@@ -364,6 +392,15 @@ class App:
                     elif event.unicode and event.unicode.isprintable() and \
                             len(self.name_input) < 20:
                         self.name_input += event.unicode
+                continue
+
+            if self.minigame is not None:
+                if event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
+                    self.minigame.lose('СДАЛСЯ')
+                elif event.type == pygame.KEYDOWN or \
+                        event.type == pygame.MOUSEBUTTONDOWN:
+                    ev = self._menu_event(event)
+                    self.minigame.handle(ev)
                 continue
 
             if event.type == pygame.KEYDOWN:
@@ -532,6 +569,8 @@ class App:
             self._draw_menu(surf, W, H)
         if self.skills_open:
             self._draw_skills(surf, W, H)
+        if self.minigame is not None:
+            self.minigame.draw(surf, W, H, self.theme, self.book)
         if self.typing_name:
             self._draw_name_prompt(surf, W, H)
 
@@ -718,6 +757,8 @@ class App:
         surf.blit(pct, (bar.right - pct.get_width() - 4, bar.y + 1))
 
         status = a.status if a else 'Ожидание'
+        if self.minigame is not None:
+            status = f'МИНИ-ИГРА · {self.minigame.title.split(":")[-1].strip()}'
         if self.paused:
             status = '⏸ ПАУЗА — ' + status
         img = book.render(f'СТАТУС: {status}', 10, theme['fg_main'])

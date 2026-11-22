@@ -115,6 +115,8 @@ class Attack:
     failed: int = 0
     stolen_gb: float = 0.0
     money: int = 0
+    # мини-игра: движок ждёт её исхода, а рисует и опрашивает её приложение
+    minigame: object = None
 
     _ip: str = '0.0.0.0'
     _wait: float = 0.0
@@ -178,6 +180,7 @@ class Attack:
         self._wait = 0.0
         self._substep = 0
         self.phase = 'recon'
+        self.minigame = None
         self._ip = '.'.join(str(self.rng.randint(1, 255)) for _ in range(3)) + \
             f'.{self.rng.randint(1, 254)}'
 
@@ -200,6 +203,8 @@ class Attack:
         """Продвинуть симуляцию на dt секунд."""
         if self.finished:
             return
+        if self.minigame:
+            return                        # ждём исхода мини-игры
         if not self.started:
             self.started = True
             if not self.targets:
@@ -272,19 +277,19 @@ class Attack:
 
         if self.phase == 'minigame':
             chance = max(0, min(100, self.minigame_chance * p.minigame_mult))
-            if self.rng.randint(1, 100) <= chance:
-                # Этап 4 подключит настоящие мини-игры; пока — исход по шансу
-                won = self.rng.random() > 0.3
-                if won:
-                    self._log('  ✓ Защита обойдена!', 'success')
-                else:
-                    self._log('  ✗ Провал! Цель ускользнула...', 'error')
-                    self.failed += 1
-                    self._finish_target(skipped=True)
-                    return
-            self.phase = 'exploit'
-            self._substep = 0
-            self._wait = 0.2 * p.delay_mult
+            if self._substep == 0:
+                self._substep = 1
+                if self.rng.randint(1, 100) <= chance:
+                    self._log('', 'info')
+                    self._log('  ⚠ ЗАЩИТА ОБНАРУЖЕНА — требуется обход!', 'minigame')
+                    self.minigame = True     # сигнал приложению: запускай игру
+                    return                   # ждём resolve_minigame()
+                # защиты нет — идём дальше без игры
+                self.phase = 'exploit'
+                self._substep = 0
+                self._wait = 0.1 * p.delay_mult
+                return
+            # здесь ждём, пока приложение не подставит исход в minigame_won
             return
 
         if self.phase == 'exploit':
@@ -357,7 +362,23 @@ class Attack:
             self._finish_target(skipped=False)
             return
 
+    minigame_won: bool | None = None
+
+    def resolve_minigame(self, won: bool) -> None:
+        """Приложение сообщает исход мини-игры."""
+        self.minigame = None
+        if won:
+            self._log('  ✓ Защита обойдена!', 'success')
+            self.phase = 'exploit'
+            self._substep = 0
+            self._wait = 0.2 * self.params.delay_mult
+        else:
+            self._log('  ✗ Провал! Цель ускользнула...', 'error')
+            self.failed += 1
+            self._finish_target(skipped=True)
+
     def _finish_target(self, skipped: bool) -> None:
+        self.phase = 'done'          # иначе update застрянет в ожидании мини-игры
         total = len(self.targets)
         base = (self.idx / total) * 100
         if skipped:
@@ -370,7 +391,7 @@ class Attack:
         if self.idx >= total:
             self._finalize()
         else:
-            self._begin_target()
+            self._begin_target()          # выставит phase = 'recon'
 
     def _finalize(self) -> None:
         total = len(self.targets)
