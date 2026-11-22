@@ -1,0 +1,29 @@
+# Единый стиль переводов строк в репозитории: LF.
+# Git сам отдаёт рабочей копии CRLF на Windows (core.autocrlf=true) и LF на Linux/macOS,
+# поэтому гонять файлы туда-обратно не нужно:
+#   * text=auto  — Git сам определяет текстовые файлы и нормализует их в LF в коммите
+* text=auto
+
+# Явно: питоновские исходники — LF в репозитории, CRLF в рабочей копии Windows
+*.py       text eol=crlf
+*.pyw      text eol=crlf
+*.txt      text eol=crlf
+*.md       text eol=crlf
+*.json     text eol=crlf
+
+# Скрипты должны остаться с LF даже на Windows (иначе shebang ломается)
+*.sh       text eol=lf
+*.bat      text eol=crlf
+*.cmd      text eol=crlf
+
+# Бинарные файлы — без автоконвертации
+*.png      binary
+*.jpg      binary
+*.jpeg     binary
+*.gif      binary
+*.ico      binary
+*.wav      binary
+*.mp3      binary
+*.ogg      binary
+*.ttf      binary
+*.zip      binary
