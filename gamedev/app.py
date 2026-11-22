@@ -68,7 +68,7 @@ class App:
         from assets.fonts.fontloader import FontBook
         self.book = FontBook(pygame)
 
-        self.screen = Screen(self.window)
+        self.screen = Screen(self.window, smooth=self.settings.smooth_scaling)
         self.clock = pygame.time.Clock()
         self.running = True
         self.time = 0.0
@@ -190,9 +190,14 @@ class App:
             checked=self.settings.show_calculations,
             on_change=self._on_calc_change)
 
+        self.smooth_cb = Checkbox(
+            rect=pygame.Rect(x0, row3, 230, 20), text='Плавное масштабирование',
+            checked=self.settings.smooth_scaling,
+            on_change=self._on_smooth_change)
+
         y = py + panel_h - 46
         self.menu_widgets = [self.theme_dd, self.size_dd, self.chance_slider,
-                             self.glitches_cb, self.calc_cb]
+                             self.glitches_cb, self.calc_cb, self.smooth_cb]
         self.menu_buttons = [
             Button(rect=pygame.Rect(px + panel_w - 140, y, 110, 28),
                    text='💾 Сохранить', size=11, accent=True,
@@ -379,6 +384,10 @@ class App:
         if self.attack:
             self.attack.show_calculations = value
 
+    def _on_smooth_change(self, value: bool) -> None:
+        self.settings.smooth_scaling = value
+        self.screen.smooth = value      # применяется сразу, без рестарта
+
     def apply_window_size(self) -> None:
         """Пересчитывает и применяет размер окна (только через настройки)."""
         info = pygame.display.Info()
@@ -386,7 +395,7 @@ class App:
         self.size_info = compute_size(*self.monitor, mode=self.settings.window_scale)
         self.window = pygame.display.set_mode(
             (self.size_info.width, self.size_info.height))
-        self.screen = Screen(self.window)
+        self.screen = Screen(self.window, smooth=self.settings.smooth_scaling)
 
     def open_menu(self) -> None:
         self.menu_open = True
@@ -395,6 +404,7 @@ class App:
         self.chance_slider.value = self.settings.minigame_chance
         self.glitches_cb.checked = self.settings.glitch_enabled
         self.calc_cb.checked = self.settings.show_calculations
+        self.smooth_cb.checked = self.settings.smooth_scaling
 
     def save_and_close(self) -> None:
         self.settings.save()
@@ -932,6 +942,7 @@ class App:
 
         self._menu_caption(surf, 'Эффекты', self.glitches_cb.rect.x,
                            y=self.glitches_cb.rect.y - 24)
+        self._menu_caption(surf, 'Масштабирование', self.smooth_cb.rect)
 
         dropdowns = [self.theme_dd, self.size_dd]
         for w in self.menu_widgets:

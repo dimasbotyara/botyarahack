@@ -92,13 +92,15 @@ def test_normalize_mode():
 def test_settings_roundtrip(tmp_path=None):
     d = Path(tempfile.mkdtemp())
     path = d / 's.json'
-    s = Settings(theme='ocean', minigame_chance=55, window_scale='0.75', attack_mode='stealth')
+    s = Settings(theme='ocean', minigame_chance=55, window_scale='0.75',
+                 attack_mode='stealth', smooth_scaling=False)
     assert s.save(path)
     loaded = Settings.load(path)
     assert loaded.theme == 'ocean'
     assert loaded.minigame_chance == 55
     assert loaded.window_scale == '0.75'
     assert loaded.attack_mode == 'stealth'
+    assert loaded.smooth_scaling is False
 
 
 def test_settings_survive_garbage():
@@ -137,6 +139,14 @@ def test_settings_compatible_with_legacy_keys():
     assert s.glitch_enabled is False
     assert s.attack_mode == 'aggressive'
     assert s.window_scale == 'auto'      # новое поле — дефолт
+    assert s.smooth_scaling is True      # плавное масштабирование — по умолчанию вкл
+
+
+def test_smooth_scaling_on_by_default():
+    s = Settings()
+    assert s.smooth_scaling is True, 'плавное масштабирование должно быть включено'
+    s = Settings(smooth_scaling=False).normalized()
+    assert s.smooth_scaling is False
 
 
 # ─────────────────── окно: только из настроек ───────────────────
@@ -174,7 +184,7 @@ def test_app_boots_and_renders():
     # меню открывается и рисуется
     app.open_menu()
     app.draw()
-    assert len(app.menu_widgets) == 5
+    assert len(app.menu_widgets) == 6
     pygame.quit()
 
 
@@ -203,6 +213,58 @@ def test_size_change_applies_new_window():
     new = app.window.get_size()
     assert new != old
     assert new[0] <= app.monitor[0] and new[1] <= app.monitor[1]
+    pygame.quit()
+
+
+# ─────────────────── плавное масштабирование ───────────────────
+def test_screen_smooth_scaling_modes():
+    """Плавное даёт сглаженные края, быстрое — только чистые пиксели."""
+    import pygame
+    from gamedev.screen import Screen
+
+    pygame.display.init()
+    win = pygame.display.set_mode((4, 4))
+
+    # шахматка 2×2 → окно 4×4
+    def checker():
+        scr = Screen(win, logical_size=(2, 2))
+        scr.surface.fill((0, 0, 0))
+        scr.surface.fill((255, 255, 255), pygame.Rect(0, 0, 1, 1))
+        scr.surface.fill((255, 255, 255), pygame.Rect(1, 1, 1, 1))
+        return scr
+
+    white, black = (255, 255, 255), (0, 0, 0)
+
+    fast = checker()
+    fast.smooth = False
+    fast.blit_to_window()
+    colors = {tuple(win.get_at((x, y)))[:3]
+              for x in range(4) for y in range(4)}
+    assert colors <= {white, black}, f'быстрый режим размыл пиксели: {colors}'
+
+    smooth = checker()
+    smooth.smooth = True
+    smooth.blit_to_window()
+    colors = {tuple(win.get_at((x, y)))[:3]
+              for x in range(4) for y in range(4)}
+    assert any(c not in (white, black) for c in colors), \
+        f'плавный режим не сгладил края: {colors}'
+    pygame.quit()
+
+
+def test_smooth_toggle_applies_live():
+    import pygame
+    from gamedev.app import App
+
+    app = App()
+    assert app.screen.smooth is True
+    app._on_smooth_change(False)
+    assert app.settings.smooth_scaling is False
+    assert app.screen.smooth is False, 'переключатель должен действовать сразу'
+    app.open_menu()
+    assert app.smooth_cb.checked is False
+    app._on_smooth_change(True)
+    assert app.screen.smooth is True
     pygame.quit()
 
 

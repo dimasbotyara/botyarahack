@@ -27,6 +27,7 @@ class Settings:
     show_calculations: bool = True
     attack_mode: str = 'normal'
     window_scale: str = config.WINDOW_SCALE_DEFAULT
+    smooth_scaling: bool = True   # плавное масштабирование интерфейса
     vsync: bool = True
     sound: bool = True
 
@@ -40,6 +41,7 @@ class Settings:
             show_calculations=bool(self.show_calculations),
             attack_mode=self.attack_mode if self.attack_mode in VALID_MODES else 'normal',
             window_scale=normalize_mode(self.window_scale),
+            smooth_scaling=bool(self.smooth_scaling),
             vsync=bool(self.vsync),
             sound=bool(self.sound),
         )
@@ -64,6 +66,7 @@ class Settings:
             show_calculations=data.get('show_calculations', defaults.show_calculations),
             attack_mode=data.get('attack_mode', defaults.attack_mode),
             window_scale=data.get('window_scale', defaults.window_scale),
+            smooth_scaling=data.get('smooth_scaling', defaults.smooth_scaling),
             vsync=data.get('vsync', defaults.vsync),
             sound=data.get('sound', defaults.sound),
         )
