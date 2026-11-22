@@ -113,9 +113,9 @@ class App:
     def _build_main_ui(self) -> None:
         W, H = config.LOGICAL_W, config.LOGICAL_H
         self.header_buttons = [
-            Button(rect=pygame.Rect(W - 150, 12, 60, 24), text='⚙ Настройки',
-                   size=9, on_click=self.open_menu),
-            Button(rect=pygame.Rect(W - 82, 12, 50, 24), text='📜', size=9,
+            Button(rect=pygame.Rect(W - 166, 12, 76, 24), text='⚙ Настройки',
+                   size=10, on_click=self.open_menu),
+            Button(rect=pygame.Rect(W - 86, 12, 54, 24), text='📜', size=10,
                    on_click=self._toggle_history),
         ]
         self.status_lights = [('DARKNET', True), ('TOR', True), ('VPN', False),
@@ -126,7 +126,7 @@ class App:
         modes = [('🐢 Стелс', 'stealth'), ('⚡ Норм', 'normal'), ('🔥 Агрессив', 'aggressive')]
         x = 16 + 24 + self._text_width(f'◆ {config.TITLE}', 16) + 24 + 4 * 80 + 20
         for label, key in modes:
-            btn = Button(rect=pygame.Rect(x, 12, 76, 26), text=label, size=9,
+            btn = Button(rect=pygame.Rect(x, 12, 76, 26), text=label, size=10,
                          on_click=lambda k=key: self.set_mode(k))
             self.mode_buttons.append(btn)
             x += 80
@@ -134,7 +134,7 @@ class App:
         # кнопка атаки
         self.attack_btn = Button(
             rect=pygame.Rect(LEFT_X + 12, H - FOOTER_H - 58, LEFT_W - 24, 36),
-            text='◆ ВЗЛОМАТЬ ◆', size=12, accent=True, on_click=self.toggle_attack)
+            text='◆ ВЗЛОМАТЬ ◆', size=14, accent=True, on_click=self.toggle_attack)
 
     def _text_width(self, text: str, size: int) -> int:
         return self.book.size(text, size, chain=['jetbrains_bold', 'symbols', 'emoji'])[0]
@@ -143,7 +143,7 @@ class App:
         W, H = config.LOGICAL_W, config.LOGICAL_H
         rect = pygame.Rect(RIGHT_X + 10, PANEL_TOP + 30,
                            W - RIGHT_X - 20, H - FOOTER_H - PANEL_TOP - 42)
-        self.log = LogView(rect, self.book, font_size=12)
+        self.log = LogView(rect, self.book, font_size=13)
 
     def _resize_log(self) -> None:
         W, H = config.LOGICAL_W, config.LOGICAL_H
@@ -195,10 +195,10 @@ class App:
                              self.glitches_cb, self.calc_cb]
         self.menu_buttons = [
             Button(rect=pygame.Rect(px + panel_w - 140, y, 110, 28),
-                   text='💾 Сохранить', size=10, accent=True,
+                   text='💾 Сохранить', size=11, accent=True,
                    on_click=self.save_and_close),
             Button(rect=pygame.Rect(px + 30, y, 100, 28),
-                   text='✖ Закрыть', size=10,
+                   text='✖ Закрыть', size=11,
                    on_click=lambda: setattr(self, 'menu_open', False)),
         ]
 
@@ -719,7 +719,7 @@ class App:
             pygame.draw.rect(surf, theme['border'], box, 1)
             dot = theme['fg_main'] if on else theme['error']
             pygame.draw.circle(surf, dot, (box.x + 10, box.centery), 3)
-            lbl = book.render(name, 7, theme['fg_dim'])
+            lbl = book.render(name, 9, theme['fg_dim'])
             surf.blit(lbl, (box.x + 20, box.centery - lbl.get_height() // 2))
             x += box.width + 6
 
@@ -789,7 +789,7 @@ class App:
                                        self.center_rect.width - 20, 30)
 
     # ── цели ────────────────────────────────────────────────────────────
-    ROW_H = 19
+    ROW_H = 21
 
     def _draw_targets(self, surf) -> None:
         theme, book = self.theme, self.book
@@ -801,7 +801,7 @@ class App:
                          box, 1)
         text = self.targets.filter_text or '🔍 поиск…'
         color = theme['fg_main'] if self.targets.filter_text else theme['muted']
-        img = book.render(text, 9, color)
+        img = book.render(text, 11, color)
         surf.blit(img, (box.x + 6, box.centery - img.get_height() // 2))
         if self.search_active and int(self.time * 2) % 2 == 0:
             cx = box.x + 6 + img.get_width() + 1
@@ -826,16 +826,16 @@ class App:
                 pygame.draw.rect(surf, theme['bg_light'], row)
             order_text = f'{self.targets.queue[name]}. ' if queued else '   '
             color = theme['accent'] if queued else theme['fg_main']
-            img = book.render(order_text + label.split('] ', 1)[-1], 9, color)
+            img = book.render(order_text + label.split('] ', 1)[-1], 11, color)
             surf.blit(img, (row.x + 5, row.y + 3))
         surf.set_clip(clip)
 
         # счётчик очереди — в полосе между списком и кнопкой
         count = len(self.targets.queue)
-        stat = book.render(f'в очереди: {count}', 9,
+        stat = book.render(f'в очереди: {count}', 11,
                            theme['accent'] if count else theme['fg_dim'])
         surf.blit(stat, (r.x + 1, r.bottom + 4))
-        total = book.render(f'всего: {len(self.targets.items)}', 8, theme['muted'])
+        total = book.render(f'всего: {len(self.targets.items)}', 10, theme['muted'])
         surf.blit(total, (r.right - total.get_width() - 1, r.bottom + 5))
 
     # ── карта и профиль ─────────────────────────────────────────────────
@@ -847,11 +847,11 @@ class App:
         y = self.map.rect.bottom + 8
         x = self.center_rect.x + 12
         rows = [
-            (f'👤 {p.name or "Анон"}', 'fg_main', 11),
-            (f'💵 ${p.money}', 'accent', 11),
-            (f'Взломов: {p.hacks_completed}  провалов: {p.hacks_failed}', 'fg_dim', 9),
-            (f'Данных: {p.data_stolen_gb:.1f} GB', 'fg_dim', 9),
-            (f'SP: {p.skill_points}  ▲ {sum(p.skills.values()) - 4} ур.', 'warning', 10),
+            (f'👤 {p.name or "Анон"}', 'fg_main', 12),
+            (f'💵 ${p.money}', 'accent', 12),
+            (f'Взломов: {p.hacks_completed}  провалов: {p.hacks_failed}', 'fg_dim', 10),
+            (f'Данных: {p.data_stolen_gb:.1f} GB', 'fg_dim', 10),
+            (f'SP: {p.skill_points}  ▲ {sum(p.skills.values()) - 4} ур.', 'warning', 11),
         ]
         for text, color, size in rows:
             img = book.render(text, size, theme[color])
@@ -863,7 +863,7 @@ class App:
         pygame.draw.rect(surf, theme['bg_medium'], btn)
         pygame.draw.rect(surf, theme['accent'] if self.skills_hover else theme['border'],
                          btn, 1)
-        img = book.render('⚡ НАВЫКИ', 10, theme['accent'],
+        img = book.render('⚡ НАВЫКИ', 11, theme['accent'],
                           chain=['jetbrains_bold', 'symbols', 'emoji'])
         surf.blit(img, (btn.centerx - img.get_width() // 2,
                         btn.centery - img.get_height() // 2))
@@ -876,14 +876,14 @@ class App:
         # прогресс-бар
         a = self.attack
         value = a.progress if a else 0
-        bar = pygame.Rect(16, top + 12, W - 32, 14)
+        bar = pygame.Rect(16, top + 10, W - 32, 16)
         pygame.draw.rect(surf, theme['bg_medium'], bar)
         fill = bar.copy()
         fill.width = int(bar.width * value / 100)
         pygame.draw.rect(surf, theme['accent'], fill)
         pygame.draw.rect(surf, theme['border'], bar, 1)
 
-        pct = book.render(f'{int(value)}%', 9, theme['fg_main'])
+        pct = book.render(f'{int(value)}%', 10, theme['fg_main'])
         surf.blit(pct, (bar.right - pct.get_width() - 4, bar.y + 1))
 
         status = a.status if a else 'Ожидание'
@@ -891,17 +891,17 @@ class App:
             status = f'МИНИ-ИГРА · {self.minigame.title.split(":")[-1].strip()}'
         if self.paused:
             status = '⏸ ПАУЗА — ' + status
-        img = book.render(f'СТАТУС: {status}', 10, theme['fg_main'])
-        surf.blit(img, (16, top + 32))
+        img = book.render(f'СТАТУС: {status}', 11, theme['fg_main'])
+        surf.blit(img, (16, top + 29))
 
         info = book.render(
             f'окно: {self.size_info.describe()}  │  монитор: {self.monitor[0]}×{self.monitor[1]}'
-            f'  │  тема: {self.theme.name}', 8, theme['fg_dim'])
-        surf.blit(info, (16, top + 48))
+            f'  │  тема: {self.theme.name}', 9, theme['fg_dim'])
+        surf.blit(info, (16, top + 46))
 
         hint = book.render(
             'ВЗЛОМАТЬ — старт/стоп │ SPACE — пауза │ H — история │ M — настройки │ '
-            'F1 — консоль │ F12 — экспорт лога │ ESC — выход', 8, theme['muted'])
+            'F1 — консоль │ F12 — экспорт лога │ ESC — выход', 9, theme['muted'])
         surf.blit(hint, (16, top + 60))
 
     def _draw_menu(self, surf, W: int, H: int) -> None:
@@ -915,7 +915,7 @@ class App:
         r = self.menu_rect
         pygame.draw.rect(surf, theme['bg_dark'], r)
         pygame.draw.rect(surf, theme['accent'], r, 1)
-        title = book.render('⚙ НАСТРОЙКИ', 16, theme['fg_main'],
+        title = book.render('⚙ НАСТРОЙКИ', 18, theme['fg_main'],
                             chain=['jetbrains_bold', 'symbols', 'emoji'])
         surf.blit(title, (r.x + 24, r.y + 16))
         pygame.draw.line(surf, theme['border'], (r.x + 1, r.y + 52), (r.right - 1, r.y + 52))
@@ -925,9 +925,9 @@ class App:
 
         self._menu_caption(surf, f'Шанс мини-игры: {self.settings.minigame_chance}%',
                            self.chance_slider.rect)
-        preview = book.render(f'→ окно: {self.size_info.describe()}', 10, theme['muted'])
+        preview = book.render(f'→ окно: {self.size_info.describe()}', 11, theme['muted'])
         surf.blit(preview, (self.size_dd.rect.x, self.chance_slider.rect.y - 6))
-        mon = book.render(f'   монитор: {self.monitor[0]}×{self.monitor[1]}', 9, theme['muted'])
+        mon = book.render(f'   монитор: {self.monitor[0]}×{self.monitor[1]}', 10, theme['muted'])
         surf.blit(mon, (self.size_dd.rect.x, self.chance_slider.rect.y + 10))
 
         self._menu_caption(surf, 'Эффекты', self.glitches_cb.rect.x,
@@ -943,7 +943,7 @@ class App:
             w.draw(surf, theme, book)
 
         hint = book.render('Размер окна меняется только здесь — мышью тянуть нельзя',
-                           9, theme['fg_dim'])
+                           10, theme['fg_dim'])
         surf.blit(hint, (r.x + 24, r.bottom - 78))
 
     # ── история атак ────────────────────────────────────────────────────
@@ -959,10 +959,10 @@ class App:
         pygame.draw.rect(surf, theme['bg_dark'], r)
         pygame.draw.rect(surf, theme['accent'], r, 1)
 
-        title = book.render('📜 ИСТОРИЯ АТАК', 16, theme['fg_main'],
+        title = book.render('📜 ИСТОРИЯ АТАК', 18, theme['fg_main'],
                             chain=['jetbrains_bold', 'symbols', 'emoji'])
         surf.blit(title, (r.x + 24, r.y + 16))
-        hint = book.render('H или ESC — закрыть', 9, theme['muted'])
+        hint = book.render('H или ESC — закрыть', 10, theme['muted'])
         surf.blit(hint, (r.right - hint.get_width() - 24, r.y + 22))
         pygame.draw.line(surf, theme['border'], (r.x + 1, r.y + 50),
                          (r.right - 1, r.y + 50))
@@ -970,7 +970,7 @@ class App:
         cols = ['Дата', 'Целей', 'Успех', 'Провал', 'Режим']
         xs = [r.x + 24, r.x + 320, r.x + 410, r.x + 500, r.x + 600]
         for x, name in zip(xs, cols):
-            surf.blit(book.render(name, 9, theme['fg_dim']), (x, r.y + 60))
+            surf.blit(book.render(name, 10, theme['fg_dim']), (x, r.y + 60))
         pygame.draw.line(surf, theme['border'], (r.x + 16, r.y + 76),
                          (r.right - 16, r.y + 76))
 
@@ -980,7 +980,7 @@ class App:
                                          self.history_scroll))
         y = r.y + 84
         if not entries:
-            surf.blit(book.render('пока пусто — проведи первую атаку', 10,
+            surf.blit(book.render('пока пусто — проведи первую атаку', 11,
                                   theme['muted']), (r.x + 24, y))
         for e in entries[self.history_scroll:self.history_scroll + rows]:
             color = theme['accent'] if e['completed'] else theme['fg_dim']
@@ -989,13 +989,13 @@ class App:
             values = [e['date'], str(e['targets']), str(e['completed']),
                       str(e['failed']), e['mode']]
             for x, value in zip(xs, values):
-                surf.blit(book.render(value, 9, color), (x, y))
+                surf.blit(book.render(value, 10, color), (x, y))
             y += 20
 
         s = history.summary(self.history_entries)
         foot = (f"Атак: {s['attacks']}   целей: {s['targets']}   "
                 f"успешно: {s['completed']}   провалено: {s['failed']}")
-        img = book.render(foot, 10, theme['fg_main'])
+        img = book.render(foot, 11, theme['fg_main'])
         surf.blit(img, (r.x + 24, r.bottom - 34))
 
     # ── консоль отладки ─────────────────────────────────────────────────
@@ -1011,10 +1011,10 @@ class App:
         pygame.draw.rect(surf, (0, 0, 0), r)
         pygame.draw.rect(surf, theme['accent'], r, 1)
 
-        title = book.render('🖥 DEBUG CONSOLE', 14, theme['accent'],
+        title = book.render('🖥 DEBUG CONSOLE', 15, theme['accent'],
                             chain=['jetbrains_bold', 'symbols', 'emoji'])
         surf.blit(title, (r.x + 18, r.y + 12))
-        hint = book.render('F1 / ` — закрыть   ·   help — команды', 9, theme['muted'])
+        hint = book.render('F1 / ` — закрыть   ·   help — команды', 10, theme['muted'])
         surf.blit(hint, (r.right - hint.get_width() - 18, r.y + 16))
 
         # вывод
@@ -1027,18 +1027,18 @@ class App:
         start = max(0, end - rows)
         y = out.y + 6
         for line in lines[start:max(0, end)]:
-            img = book.render(line[:110], 10, theme['accent'])
+            img = book.render(line[:110], 11, theme['accent'])
             surf.blit(img, (out.x + 8, y))
-            y += 15
+            y += 16
 
         # ввод
         field = pygame.Rect(r.x + 14, out.bottom + 10, r.width - 28, 30)
         pygame.draw.rect(surf, (0, 0, 0), field)
         pygame.draw.rect(surf, theme['accent'], field, 1)
-        prompt = book.render('>', 12, theme['accent'],
+        prompt = book.render('>', 13, theme['accent'],
                              chain=['jetbrains_bold', 'symbols'])
         surf.blit(prompt, (field.x + 8, field.centery - prompt.get_height() // 2))
-        text = book.render(self.console.input, 11, theme['fg_main'])
+        text = book.render(self.console.input, 12, theme['fg_main'])
         surf.blit(text, (field.x + 26, field.centery - text.get_height() // 2))
         if int(self.time * 2) % 2 == 0:
             cx = field.x + 28 + text.get_width()
@@ -1065,10 +1065,10 @@ class App:
         pygame.draw.rect(surf, theme['bg_dark'], r)
         pygame.draw.rect(surf, theme['accent'], r, 1)
 
-        title = book.render('⚡ НАВЫКИ ХАКЕРА', 16, theme['fg_main'],
+        title = book.render('⚡ НАВЫКИ ХАКЕРА', 18, theme['fg_main'],
                             chain=['jetbrains_bold', 'symbols', 'emoji'])
         surf.blit(title, (r.x + 24, r.y + 16))
-        sp = book.render(f'Доступно SP: {self.player.skill_points}', 11, theme['accent'])
+        sp = book.render(f'Доступно SP: {self.player.skill_points}', 12, theme['accent'])
         surf.blit(sp, (r.right - sp.get_width() - 24, r.y + 20))
         pygame.draw.line(surf, theme['border'], (r.x + 1, r.y + 52), (r.right - 1, r.y + 52))
 
@@ -1080,12 +1080,12 @@ class App:
             pygame.draw.rect(surf, theme['bg_medium'], row)
             pygame.draw.rect(surf, theme['border'], row, 1)
 
-            surf.blit(book.render(name, 11, theme['fg_main'],
+            surf.blit(book.render(name, 12, theme['fg_main'],
                                   chain=['jetbrains_bold', 'symbols', 'emoji']),
                       (row.x + 12, row.y + 10))
-            surf.blit(book.render(desc, 8, theme['fg_dim']), (row.x + 12, row.y + 28))
+            surf.blit(book.render(desc, 9, theme['fg_dim']), (row.x + 12, row.y + 28))
             bar = self.player.bar(sid)
-            surf.blit(book.render(f'{bar} ур. {level}/{MAX_LEVEL}', 9, theme['accent']),
+            surf.blit(book.render(f'{bar} ур. {level}/{MAX_LEVEL}', 10, theme['accent']),
                       (row.x + 12, row.y + 44))
 
             btn = self.skill_buttons[sid]
@@ -1098,12 +1098,12 @@ class App:
                 border = theme['accent'] if can else theme['border']
             pygame.draw.rect(surf, theme['bg_dark'], btn)
             pygame.draw.rect(surf, border, btn, 1)
-            img = book.render(label, 9, color)
+            img = book.render(label, 10, color)
             surf.blit(img, (btn.centerx - img.get_width() // 2,
                             btn.centery - img.get_height() // 2))
             y += 84
 
-        hint = book.render('Клик по кнопке — купить уровень.  ESC — закрыть', 9, theme['muted'])
+        hint = book.render('Клик по кнопке — купить уровень.  ESC — закрыть', 10, theme['muted'])
         surf.blit(hint, (r.x + 24, r.bottom - 24))
 
     # ── ввод имени ──────────────────────────────────────────────────────
@@ -1118,7 +1118,7 @@ class App:
         pygame.draw.rect(surf, theme['bg_dark'], box)
         pygame.draw.rect(surf, theme['accent'], box, 1)
 
-        t1 = book.render('👤 ПРЕДСТАВЬСЯ, ХАКЕР', 18, theme['fg_main'],
+        t1 = book.render('👤 ПРЕДСТАВЬСЯ, ХАКЕР', 20, theme['fg_main'],
                          chain=['jetbrains_bold', 'symbols', 'emoji'])
         surf.blit(t1, (box.centerx - t1.get_width() // 2, box.y + 26))
 
@@ -1126,14 +1126,14 @@ class App:
         pygame.draw.rect(surf, theme['bg_medium'], field)
         pygame.draw.rect(surf, theme['accent'], field, 1)
         text = self.name_input or ''
-        img = book.render(text, 16, theme['fg_main'])
+        img = book.render(text, 18, theme['fg_main'])
         surf.blit(img, (field.x + 12, field.centery - img.get_height() // 2))
         if int(self.time * 2) % 2 == 0:
             cx = field.x + 12 + img.get_width() + 2
             pygame.draw.line(surf, theme['accent'], (cx, field.y + 8),
                              (cx, field.bottom - 8))
 
-        hint = book.render('Введи имя и нажми Enter', 9, theme['muted'])
+        hint = book.render('Введи имя и нажми Enter', 10, theme['muted'])
         surf.blit(hint, (box.centerx - hint.get_width() // 2, box.bottom - 34))
 
     def _menu_caption(self, surf, text: str, rect_or_x, y: int | None = None) -> None:
@@ -1143,7 +1143,7 @@ class App:
             x, y = rect_or_x.x, rect_or_x.y - 22
         else:
             x = rect_or_x
-        img = book.render(text, 10, theme['fg_dim'])
+        img = book.render(text, 11, theme['fg_dim'])
         surf.blit(img, (x, y))
 
 

@@ -16,7 +16,7 @@ import pygame
 from .attack import LogLine, LOG_COLORS
 
 MAX_LINES = 4000          # дальше старые строки уходят в архив
-LINE_STEP = 18            # межстрочный интервал в логических пикселях
+LINE_STEP = 19            # межстрочный интервал в логических пикселях
 CACHE_SIZE = 1200         # отрендеренных строк в кэше
 
 
@@ -178,7 +178,7 @@ class LogView:
 
         # индикатор «ты не внизу»
         if self.scroll and total > self.visible_rows:
-            badge = book.render(f'↓ {self.scroll}', 8, theme['bg_dark'])
+            badge = book.render(f'↓ {self.scroll}', 9, theme['bg_dark'])
             pad = 6
             box = pygame.Rect(r.right - badge.get_width() - pad * 2 - 10,
                               r.bottom - 20, badge.get_width() + pad * 2, 15)

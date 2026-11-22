@@ -80,5 +80,5 @@ class AttackMap:
             surf.blit(dot, (px - 3, py - 3))
 
         if not self.pings:
-            hint = book.render('► ожидание ударов', 8, theme['muted'])
+            hint = book.render('► ожидание ударов', 9, theme['muted'])
             surf.blit(hint, (r.x + 8, r.bottom - 16))

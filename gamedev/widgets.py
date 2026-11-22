@@ -101,7 +101,7 @@ class Panel(Widget):
         pygame.draw.rect(surf, theme[self.bg_key], self.rect)
         pygame.draw.rect(surf, theme['border'], self.rect, 1)
         if self.title:
-            img = book.render(self.title, 11, theme['fg_main'])
+            img = book.render(self.title, 12, theme['fg_main'])
             surf.blit(img, (self.rect.x + 8, self.rect.y + 6))
             pygame.draw.line(surf, theme['border'],
                              (self.rect.x + 1, self.rect.y + 24),
@@ -168,7 +168,7 @@ class Dropdown(Widget):
         pygame.draw.rect(surf, bg, self.rect)
         pygame.draw.rect(surf, theme['accent'] if self.open else theme['border'],
                          self.rect, 1)
-        img = book.render(self._label_for(self.value), 10, theme['fg_main'])
+        img = book.render(self._label_for(self.value), 11, theme['fg_main'])
         surf.blit(img, (self.rect.x + 8, self.rect.centery - img.get_height() // 2))
         # стрелка
         ax, ay = self.rect.right - 14, self.rect.centery - 2
@@ -188,7 +188,7 @@ class Dropdown(Widget):
                 pygame.draw.rect(surf, theme['bg_light'], r)
             if self.options[i][0] == self.value:
                 pygame.draw.rect(surf, theme['accent'], r, 1)
-            img = book.render(self.options[i][1], 10, theme['fg_main'])
+            img = book.render(self.options[i][1], 11, theme['fg_main'])
             surf.blit(img, (r.x + 8, r.centery - img.get_height() // 2))
 
 
@@ -221,7 +221,7 @@ class Checkbox(Widget):
         if self.checked:
             pygame.draw.line(surf, theme['accent'], (box.x + 3, box.y + 8), (box.x + 7, box.y + 12), 2)
             pygame.draw.line(surf, theme['accent'], (box.x + 7, box.y + 12), (box.x + 13, box.y + 4), 2)
-        img = book.render(self.text, 10, theme['fg_main'])
+        img = book.render(self.text, 11, theme['fg_main'])
         surf.blit(img, (box.right + 8, self.rect.centery - img.get_height() // 2))
 
 
