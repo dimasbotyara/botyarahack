@@ -232,6 +232,7 @@ def test_app_attack_toggle_and_pause():
     from gamedev.app import App
 
     app = App()
+    app.typing_name = False           # имя уже введено
     app.toggle_attack()
     assert app.attack is not None
     app._pump_attack(0.5)
@@ -253,6 +254,7 @@ def test_app_log_survives_theme_switch():
     from gamedev.app import App
 
     app = App()
+    app.typing_name = False
     app.toggle_attack()
     app._pump_attack(1.0)
     count = len(app.log.lines)

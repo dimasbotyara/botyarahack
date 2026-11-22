@@ -100,6 +100,47 @@ def render(out_dir: Path) -> list[Path]:
     pygame.image.save(app.screen.surface.copy(), str(p))
     saved.append(p)
 
+    # ── Этап 3: цели с очередью, карта, профиль ──
+    app.paused = False
+    app.attack = None
+    app.typing_name = False
+    app.player.name = 'NEO'
+    app.player.money = 2450
+    app.player.hacks_completed = 17
+    app.player.hacks_failed = 3
+    app.player.data_stolen_gb = 214.6
+    app.player.skill_points = 4
+    app.player.skills['hacking_speed'] = 3
+    app.log.clear()
+    app._welcome()
+    app.settings.attack_mode = 'normal'
+    for name in ('github / github.com', 'nasa / nasa.gov', 'vk / vk.ru'):
+        app.targets.toggle(name)
+    for _ in range(6):
+        app.map.strike()
+    for _ in range(40):
+        app.map.update(0.12)
+    app.draw()
+    p = out_dir / 'stage3-targets-map-profile.png'
+    pygame.image.save(app.screen.surface.copy(), str(p))
+    saved.append(p)
+
+    # кадр 9: окно навыков
+    app.skills_open = True
+    app.draw()
+    p = out_dir / 'stage3-skills.png'
+    pygame.image.save(app.screen.surface.copy(), str(p))
+    saved.append(p)
+
+    # кадр 10: поиск по целям
+    app.skills_open = False
+    app.search_active = True
+    app.targets.type_char('git')
+    app.draw()
+    p = out_dir / 'stage3-target-search.png'
+    pygame.image.save(app.screen.surface.copy(), str(p))
+    saved.append(p)
+
     print(f'окно: {app.size_info.describe()}, монитор: {app.monitor}')
     pygame.quit()
     return saved

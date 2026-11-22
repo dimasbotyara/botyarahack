@@ -1,4 +1,4 @@
-"""Главная сцена pygame-версии (Этап 2: живой лог, матрица, симуляция).
+"""Главная сцена pygame-версии (Этап 3: цели, карта атак, профиль).
 
 Что уже есть:
   * окно нужного размера (авто-подбор под монитор, смена из настроек);
@@ -6,6 +6,9 @@
   * лог с цветными строками, прокруткой и переносом по словам;
   * симуляция взлома — пошаговый автомат, с паузами и прерыванием;
   * режимы атаки (стелс / норм / агрессив) меняют темп и подробность;
+  * список целей с очередью атаки, поиском и добавлением своих;
+  * карта атак с затухающими точками ударов;
+  * профиль игрока, навыки за SP и деньги;
   * прогресс, статус и счётчики внизу.
 
 Размер окна меняется только в настройках (RESIZABLE не включаем).
@@ -21,11 +24,14 @@ import pygame
 
 from . import config, gamedata
 from .attack import Attack, LogLine, mode_params
+from .attackmap import AttackMap
 from .background import MatrixRain
 from .display import compute_size
 from .logpanel import LogView
+from .profile import MAX_LEVEL, SKILLS, Player, skill_cost
 from .screen import Screen
 from .settings import Settings
+from .targets import TargetList
 from .theme import Theme
 from .widgets import Button, Checkbox, Dropdown, Label, Panel, Slider
 
@@ -67,9 +73,20 @@ class App:
         self.matrix = MatrixRain(config.LOGICAL_W, config.LOGICAL_H, seed=7)
 
         self.menu_open = False
+        self.skills_open = False
         self.attack: Attack | None = None
         self.paused = False
-        self.toasts: list[tuple[str, float, str]] = []
+        self.attack_started = 0.0
+
+        self.player = Player.load()
+        self.targets = TargetList()
+        self.map = AttackMap(pygame.Rect(CENTER_X + 10, PANEL_TOP + 30,
+                                         CENTER_W - 20, 108), seed=3)
+        self.typing_name = not bool(self.player.name)
+        self.name_input = ''
+        self.search_active = False
+        self.skills_hover = False
+        self.name_rect = pygame.Rect(0, 0, 0, 0)
 
         self._build_main_ui()
         self._build_menu_ui()
@@ -182,6 +199,19 @@ class App:
             LogLine('  Выбери цели слева и жми ВЗЛОМАТЬ', 'info', stamp),
             LogLine('', 'info', stamp),
         ]
+        p = self.player
+        lines += [
+            LogLine('═' * 50, 'header', stamp),
+            LogLine('  ТВОЙ ПРОФИЛЬ', 'header', stamp),
+            LogLine('═' * 50, 'header', stamp),
+            LogLine(f'  Хакер: {p.name or "Анон"}', 'data', stamp),
+            LogLine(f'  Баланс: ${p.money}', 'data', stamp),
+            LogLine(f'  Взломов: {p.hacks_completed}  провалов: {p.hacks_failed}',
+                    'info', stamp),
+            LogLine(f'  Данных добыто: {p.data_stolen_gb:.1f} GB', 'info', stamp),
+            LogLine('═' * 50, 'header', stamp),
+            LogLine('', 'info', stamp),
+        ]
         self.log.append(lines)
 
     @staticmethod
@@ -206,18 +236,24 @@ class App:
             return
 
         targets = self._pick_targets()
+        if self.typing_name:
+            self.log_line('⚠ Сначала введи имя хакера', 'warning')
+            return
         self.attack = Attack(
             targets=targets,
-            params=mode_params(self.settings.attack_mode),
+            params=mode_params(self.settings.attack_mode, self.player.skills),
             minigame_chance=self.settings.minigame_chance,
             show_calculations=self.settings.show_calculations,
             rng=random.Random())
+        self.attack_started = self.time
+        self.paused = False
 
     def _pick_targets(self) -> list[str]:
-        """Пока целей нет — берём случайную (Этап 3 даст выбор)."""
-        if getattr(self, 'selected_targets', None):
-            return list(self.selected_targets)
-        target = random.choice(gamedata.TARGETS)
+        """Цели в порядке кликов; если очередь пуста — случайная."""
+        chosen = self.targets.selected()
+        if chosen:
+            return chosen
+        target = random.choice(self.targets.items or gamedata.TARGETS)
         self.log_line('⚠ Цель не выбрана, атакую случайную', 'warning')
         return [target]
 
@@ -228,9 +264,23 @@ class App:
             self.attack.update(dt)
         self.log.append(self.attack.drain())
 
+        # удары по карте — по одному за новый фрагмент вывода
+        if self.attack.phase in ('scan', 'exploit', 'extract') and \
+                random.random() < dt * 2.5:
+            self.map.strike()
+
         if self.attack.finished:
             a = self.attack
             self.log_line(f'  Итог: {a.completed} успешно, {a.failed} провалено', 'header')
+            if a.completed or a.failed:
+                earned = self.player.apply_result(a.completed, a.failed,
+                                                  a.stolen_gb, a.money)
+                self.player.save()
+                if earned:
+                    self.log_line(f'  Зачислено: ${earned} (баланс ${self.player.money})',
+                                  'success')
+                self.log_line(f'  SP: +{a.completed} (всего {self.player.skill_points})',
+                              'data')
             if a.money:
                 self.log_line(f'  Заработано: ${a.money}', 'success')
             self.attack = None
@@ -244,6 +294,10 @@ class App:
         self.settings.window_scale = key
         self.apply_window_size()
         self._resize_log()
+        if hasattr(self, 'left_rect'):
+            self._layout_panels(config.LOGICAL_W, config.LOGICAL_H)
+            self.attack_btn.rect = pygame.Rect(
+                LEFT_X + 12, config.LOGICAL_H - FOOTER_H - 58, LEFT_W - 24, 36)
 
     def _on_chance_change(self, value: int) -> None:
         self.settings.minigame_chance = int(value)
@@ -287,6 +341,7 @@ class App:
             self.time += dt
             self.handle_events()
             self.matrix.update(dt)
+            self.map.update(dt)
             self._pump_attack(min(dt, 0.1))
             self.draw()
             pygame.display.flip()
@@ -298,15 +353,50 @@ class App:
             if event.type == pygame.QUIT:
                 self.running = False
                 continue
+
+            # ── ввод имени при первом запуске ──
+            if self.typing_name and not self.menu_open:
+                if event.type == pygame.KEYDOWN:
+                    if event.key == pygame.K_RETURN:
+                        self._submit_name()
+                    elif event.key == pygame.K_BACKSPACE:
+                        self.name_input = self.name_input[:-1]
+                    elif event.unicode and event.unicode.isprintable() and \
+                            len(self.name_input) < 20:
+                        self.name_input += event.unicode
+                continue
+
             if event.type == pygame.KEYDOWN:
                 if event.key == pygame.K_ESCAPE:
-                    if self.menu_open:
+                    if self.skills_open:
+                        self.skills_open = False
+                    elif self.menu_open:
                         self.menu_open = False
+                    elif self.search_active and self.targets.filter_text:
+                        self.targets.filter_text = ''
+                    elif self.search_active:
+                        self.search_active = False
                     elif self.attack:
                         self.toggle_attack()
                     else:
                         self.running = False
                     continue
+
+                if self.skills_open:
+                    continue
+                if self.search_active:
+                    if event.key == pygame.K_BACKSPACE:
+                        self.targets.backspace()
+                    elif event.key == pygame.K_RETURN:
+                        self.search_active = False
+                    elif event.key == pygame.K_DOWN:
+                        self.targets.scroll_by(1, self._target_rows())
+                    elif event.key == pygame.K_UP:
+                        self.targets.scroll_by(-1, self._target_rows())
+                    elif event.unicode and event.unicode.isprintable():
+                        self.targets.type_char(event.unicode)
+                    continue
+
                 if event.key == pygame.K_m and not self.menu_open:
                     self.open_menu()
                     continue
@@ -329,15 +419,88 @@ class App:
                     w.handle(self._menu_event(event))
                 for b in self.menu_buttons:
                     b.handle(self._menu_event(event))
-            else:
-                if self.log.rect.collidepoint(self._logical(event)):
-                    if self.log.handle(event):
-                        continue
-                for b in self.header_buttons:
-                    b.handle(self._menu_event(event))
-                for b in self.mode_buttons:
-                    b.handle(self._menu_event(event))
-                self.attack_btn.handle(self._menu_event(event))
+                continue
+
+            if self.skills_open:
+                self._handle_skills(event)
+                continue
+
+            # ── обычный режим ──
+            if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+                pos = self._logical(event)
+                if self.search_rect.collidepoint(pos):
+                    self.search_active = True
+                    continue
+                if self.skills_rect.collidepoint(pos):
+                    self.skills_open = True
+                    continue
+                name = self._target_at(pos)
+                if name:
+                    self.targets.toggle(name)
+                    order = self.targets.queue.get(name)
+                    if order:
+                        self.log_line(f'  + В очередь [{order}]: {name}', 'success')
+                    else:
+                        self.log_line(f'  − Из очереди: {name}', 'warning')
+                    continue
+            if event.type == pygame.MOUSEWHEEL and self._logical(event) != (-1, -1):
+                if self.targets_rect.collidepoint(self._logical(event)):
+                    self.targets.scroll_by(-event.y * 2, self._target_rows())
+                    continue
+            if event.type == pygame.MOUSEMOTION:
+                self.skills_hover = self.skills_rect.collidepoint(self._logical(event))
+
+            if self.log.rect.collidepoint(self._logical(event)):
+                if self.log.handle(event):
+                    continue
+            for b in self.header_buttons:
+                b.handle(self._menu_event(event))
+            for b in self.mode_buttons:
+                b.handle(self._menu_event(event))
+            self.attack_btn.handle(self._menu_event(event))
+
+    # ── ввод имени ──────────────────────────────────────────────────────
+    def _submit_name(self) -> None:
+        name = self.name_input.strip() or 'Анон'
+        self.player.name = name
+        self.player.save()
+        self.typing_name = False
+        self.log_line(f"▶ Хакер '{name}' в сети", 'success')
+
+    # ── цели ────────────────────────────────────────────────────────────
+    def _target_rows(self) -> int:
+        return max(1, (self.targets_rect.height - 4) // self.ROW_H)
+
+    def _target_at(self, pos) -> str | None:
+        """Какая цель под курсором (с учётом прокрутки и поиска)."""
+        r = self.targets_rect
+        if not r.inflate(-2, -2).collidepoint(pos):
+            return None
+        y = pos[1] - (r.y + 2)
+        row = y // self.ROW_H
+        if row < 0 or row >= self._target_rows():
+            return None
+        visible = self.targets.visible()
+        index = self.targets.scroll + row
+        if index >= len(visible):
+            return None
+        return self.targets.items[visible[index][0]]
+
+    # ── навыки ──────────────────────────────────────────────────────────
+    def _handle_skills(self, event) -> None:
+        if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+            pos = self._logical(event)
+            for sid, btn in self.skill_buttons.items():
+                if btn.collidepoint(pos):
+                    if self.player.upgrade(sid):
+                        self.player.save()
+                        self.log_line(f'  ▲ Навык {sid} → {self.player.skills[sid]}',
+                                      'success')
+                    else:
+                        self.log_line('  ⚠ Не хватает SP или денег', 'warning')
+                    return
+            if not self.skills_modal.collidepoint(pos):
+                self.skills_open = False
 
     def _logical(self, event):
         if event.type in (pygame.MOUSEMOTION, pygame.MOUSEBUTTONDOWN,
@@ -367,6 +530,10 @@ class App:
 
         if self.menu_open:
             self._draw_menu(surf, W, H)
+        if self.skills_open:
+            self._draw_skills(surf, W, H)
+        if self.typing_name:
+            self._draw_name_prompt(surf, W, H)
 
         self.screen.blit_to_window()
 
@@ -409,25 +576,128 @@ class App:
         bottom = H - FOOTER_H
         height = bottom - PANEL_TOP
 
-        left = Panel(rect=pygame.Rect(LEFT_X, PANEL_TOP, LEFT_W, height), title='◆ ЦЕЛИ')
-        center = Panel(rect=pygame.Rect(CENTER_X, PANEL_TOP, CENTER_W, height),
-                       title='◆ КАРТА АТАК / ПРОФИЛЬ')
-        right = Panel(rect=pygame.Rect(RIGHT_X, PANEL_TOP, W - RIGHT_X - 8, height),
-                      title='◆ EXPLOIT LOG')
-        for p in (left, center, right):
+        if not hasattr(self, 'left_rect'):
+            self._layout_panels(W, H)
+
+        for p in (self.left_panel, self.center_panel, self.right_panel):
             p.draw(surf, theme, book)
 
-        for rect, text in ((left.rect, '► список целей — этап 3'),
-                           (center.rect, '► карта атак и профиль — этап 3')):
-            img = book.render(text, 9, theme['fg_dim'])
-            surf.blit(img, (rect.x + 12, rect.y + 40))
+        self._draw_targets(surf)
+        self._draw_map_and_profile(surf)
+        self.log.draw(surf, theme, book)
 
         # кнопка атаки (внутри левой панели)
         self.attack_btn.text = '⏹ СТОП' if self.attack else '◆ ВЗЛОМАТЬ ◆'
+        self.attack_btn.accent = not self.attack
         self.attack_btn.draw(surf, theme, book)
 
-        # сам лог
-        self.log.draw(surf, theme, book)
+    def _layout_panels(self, W: int, H: int) -> None:
+        """Пересчитать геометрию панелей (один раз и при смене размера)."""
+        bottom = H - FOOTER_H
+        height = bottom - PANEL_TOP
+        self.left_rect = pygame.Rect(LEFT_X, PANEL_TOP, LEFT_W, height)
+        self.center_rect = pygame.Rect(CENTER_X, PANEL_TOP, CENTER_W, height)
+        self.right_rect = pygame.Rect(RIGHT_X, PANEL_TOP, W - RIGHT_X - 8, height)
+        self.left_panel = Panel(rect=self.left_rect, title='◆ ЦЕЛИ')
+        self.center_panel = Panel(rect=self.center_rect, title='◆ КАРТА АТАК')
+        self.right_panel = Panel(rect=self.right_rect, title='◆ EXPLOIT LOG')
+
+        # поле поиска и список целей внутри левой панели
+        self.search_rect = pygame.Rect(self.left_rect.x + 10, self.left_rect.y + 32,
+                                       self.left_rect.width - 20, 24)
+        list_top = self.search_rect.bottom + 6
+        # оставляем 20 px под строку «в очереди / всего»
+        list_bottom = self.attack_btn.rect.y - 28
+        self.targets_rect = pygame.Rect(self.left_rect.x + 10, list_top,
+                                        self.left_rect.width - 20,
+                                        max(40, list_bottom - list_top))
+
+        # карта и профиль в средней панели
+        self.map.rect = pygame.Rect(self.center_rect.x + 10, self.center_rect.y + 32,
+                                    self.center_rect.width - 20, 108)
+        self.skills_rect = pygame.Rect(self.center_rect.x + 10,
+                                       self.center_rect.bottom - 40,
+                                       self.center_rect.width - 20, 30)
+
+    # ── цели ────────────────────────────────────────────────────────────
+    ROW_H = 19
+
+    def _draw_targets(self, surf) -> None:
+        theme, book = self.theme, self.book
+
+        # поиск
+        box = self.search_rect
+        pygame.draw.rect(surf, theme['bg_medium'], box)
+        pygame.draw.rect(surf, theme['accent'] if self.search_active else theme['border'],
+                         box, 1)
+        text = self.targets.filter_text or '🔍 поиск…'
+        color = theme['fg_main'] if self.targets.filter_text else theme['muted']
+        img = book.render(text, 9, color)
+        surf.blit(img, (box.x + 6, box.centery - img.get_height() // 2))
+        if self.search_active and int(self.time * 2) % 2 == 0:
+            cx = box.x + 6 + img.get_width() + 1
+            pygame.draw.line(surf, theme['accent'], (cx, box.y + 5), (cx, box.bottom - 5))
+
+        # список
+        r = self.targets_rect
+        pygame.draw.rect(surf, theme['bg_dark'], r)
+        pygame.draw.rect(surf, theme['border'], r, 1)
+        rows = max(1, (r.height - 4) // self.ROW_H)
+        visible = self.targets.visible()
+        self.targets.scroll = max(0, min(max(0, len(visible) - rows), self.targets.scroll))
+
+        clip = surf.get_clip()
+        surf.set_clip(r.inflate(-2, -2))
+        for i, (idx, label) in enumerate(visible[self.targets.scroll:
+                                                 self.targets.scroll + rows]):
+            row = pygame.Rect(r.x + 1, r.y + 2 + i * self.ROW_H, r.width - 2, self.ROW_H)
+            name = self.targets.items[idx]
+            queued = name in self.targets.queue
+            if queued:
+                pygame.draw.rect(surf, theme['bg_light'], row)
+            order_text = f'{self.targets.queue[name]}. ' if queued else '   '
+            color = theme['accent'] if queued else theme['fg_main']
+            img = book.render(order_text + label.split('] ', 1)[-1], 9, color)
+            surf.blit(img, (row.x + 5, row.y + 3))
+        surf.set_clip(clip)
+
+        # счётчик очереди — в полосе между списком и кнопкой
+        count = len(self.targets.queue)
+        stat = book.render(f'в очереди: {count}', 9,
+                           theme['accent'] if count else theme['fg_dim'])
+        surf.blit(stat, (r.x + 1, r.bottom + 4))
+        total = book.render(f'всего: {len(self.targets.items)}', 8, theme['muted'])
+        surf.blit(total, (r.right - total.get_width() - 1, r.bottom + 5))
+
+    # ── карта и профиль ─────────────────────────────────────────────────
+    def _draw_map_and_profile(self, surf) -> None:
+        theme, book = self.theme, self.book
+        self.map.draw(surf, theme, book)
+
+        p = self.player
+        y = self.map.rect.bottom + 8
+        x = self.center_rect.x + 12
+        rows = [
+            (f'👤 {p.name or "Анон"}', 'fg_main', 11),
+            (f'💵 ${p.money}', 'accent', 11),
+            (f'Взломов: {p.hacks_completed}  провалов: {p.hacks_failed}', 'fg_dim', 9),
+            (f'Данных: {p.data_stolen_gb:.1f} GB', 'fg_dim', 9),
+            (f'SP: {p.skill_points}  ▲ {sum(p.skills.values()) - 4} ур.', 'warning', 10),
+        ]
+        for text, color, size in rows:
+            img = book.render(text, size, theme[color])
+            surf.blit(img, (x, y))
+            y += img.get_height() + 3
+
+        # кнопка навыков
+        btn = self.skills_rect
+        pygame.draw.rect(surf, theme['bg_medium'], btn)
+        pygame.draw.rect(surf, theme['accent'] if self.skills_hover else theme['border'],
+                         btn, 1)
+        img = book.render('⚡ НАВЫКИ', 10, theme['accent'],
+                          chain=['jetbrains_bold', 'symbols', 'emoji'])
+        surf.blit(img, (btn.centerx - img.get_width() // 2,
+                        btn.centery - img.get_height() // 2))
 
     def _draw_footer(self, surf, W: int, H: int) -> None:
         theme, book = self.theme, self.book
@@ -504,6 +774,100 @@ class App:
         hint = book.render('Размер окна меняется только здесь — мышью тянуть нельзя',
                            9, theme['fg_dim'])
         surf.blit(hint, (r.x + 24, r.bottom - 78))
+
+    # ── окно навыков ────────────────────────────────────────────────────
+    SKILL_LABELS = {
+        'hacking_speed': ('🚀 Скорость взлома', 'ускоряет симуляцию'),
+        'minigame_difficulty': ('🎮 Лёгкость мини-игр', 'проще мини-игры'),
+        'earning_rate': ('💰 Доход', 'больше денег за взлом'),
+        'stealth': ('👻 Скрытность', 'дольше не палят'),
+    }
+
+    def _draw_skills(self, surf, W: int, H: int) -> None:
+        theme, book = self.theme, self.book
+        dim = pygame.Surface((W, H))
+        dim.fill((0, 0, 0))
+        dim.set_alpha(170)
+        surf.blit(dim, (0, 0))
+
+        w, h = 560, 420
+        r = pygame.Rect((W - w) // 2, (H - h) // 2, w, h)
+        self.skills_modal = r
+        pygame.draw.rect(surf, theme['bg_dark'], r)
+        pygame.draw.rect(surf, theme['accent'], r, 1)
+
+        title = book.render('⚡ НАВЫКИ ХАКЕРА', 16, theme['fg_main'],
+                            chain=['jetbrains_bold', 'symbols', 'emoji'])
+        surf.blit(title, (r.x + 24, r.y + 16))
+        sp = book.render(f'Доступно SP: {self.player.skill_points}', 11, theme['accent'])
+        surf.blit(sp, (r.right - sp.get_width() - 24, r.y + 20))
+        pygame.draw.line(surf, theme['border'], (r.x + 1, r.y + 52), (r.right - 1, r.y + 52))
+
+        self.skill_buttons = {}
+        y = r.y + 64
+        for sid, (name, desc) in self.SKILL_LABELS.items():
+            level = self.player.skills[sid]
+            cost = skill_cost(sid, level)
+            row = pygame.Rect(r.x + 16, y, r.width - 32, 76)
+            pygame.draw.rect(surf, theme['bg_medium'], row)
+            pygame.draw.rect(surf, theme['border'], row, 1)
+
+            surf.blit(book.render(name, 11, theme['fg_main'],
+                                  chain=['jetbrains_bold', 'symbols', 'emoji']),
+                      (row.x + 12, row.y + 10))
+            surf.blit(book.render(desc, 8, theme['fg_dim']), (row.x + 12, row.y + 28))
+            bar = self.player.bar(sid)
+            surf.blit(book.render(f'{bar} ур. {level}/{MAX_LEVEL}', 9, theme['accent']),
+                      (row.x + 12, row.y + 44))
+
+            btn = pygame.Rect(row.right - 132, row.y + 22, 118, 32)
+            self.skill_buttons[sid] = btn
+            can = self.player.can_upgrade(sid)
+            if level >= MAX_LEVEL:
+                label, color, border = 'MAX', theme['accent'], theme['border']
+            else:
+                label = f'▲ ${cost} + 1 SP'
+                color = theme['warning'] if can else theme['muted']
+                border = theme['accent'] if can else theme['border']
+            pygame.draw.rect(surf, theme['bg_dark'], btn)
+            pygame.draw.rect(surf, border, btn, 1)
+            img = book.render(label, 9, color)
+            surf.blit(img, (btn.centerx - img.get_width() // 2,
+                            btn.centery - img.get_height() // 2))
+            y += 84
+
+        hint = book.render('Клик по кнопке — купить уровень.  ESC — закрыть', 9, theme['muted'])
+        surf.blit(hint, (r.x + 24, r.bottom - 24))
+
+    # ── ввод имени ──────────────────────────────────────────────────────
+    def _draw_name_prompt(self, surf, W: int, H: int) -> None:
+        theme, book = self.theme, self.book
+        dim = pygame.Surface((W, H))
+        dim.fill((0, 0, 0))
+        dim.set_alpha(190)
+        surf.blit(dim, (0, 0))
+
+        box = pygame.Rect((W - 520) // 2, (H - 200) // 2, 520, 200)
+        pygame.draw.rect(surf, theme['bg_dark'], box)
+        pygame.draw.rect(surf, theme['accent'], box, 1)
+
+        t1 = book.render('👤 ПРЕДСТАВЬСЯ, ХАКЕР', 18, theme['fg_main'],
+                         chain=['jetbrains_bold', 'symbols', 'emoji'])
+        surf.blit(t1, (box.centerx - t1.get_width() // 2, box.y + 26))
+
+        field = pygame.Rect(box.x + 60, box.y + 78, box.width - 120, 40)
+        pygame.draw.rect(surf, theme['bg_medium'], field)
+        pygame.draw.rect(surf, theme['accent'], field, 1)
+        text = self.name_input or ''
+        img = book.render(text, 16, theme['fg_main'])
+        surf.blit(img, (field.x + 12, field.centery - img.get_height() // 2))
+        if int(self.time * 2) % 2 == 0:
+            cx = field.x + 12 + img.get_width() + 2
+            pygame.draw.line(surf, theme['accent'], (cx, field.y + 8),
+                             (cx, field.bottom - 8))
+
+        hint = book.render('Введи имя и нажми Enter', 9, theme['muted'])
+        surf.blit(hint, (box.centerx - hint.get_width() // 2, box.bottom - 34))
 
     def _menu_caption(self, surf, text: str, rect_or_x, y: int | None = None) -> None:
         """Подпись над виджетом (или на заданной высоте y)."""
