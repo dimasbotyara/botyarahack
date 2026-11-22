@@ -72,6 +72,34 @@ def render(out_dir: Path) -> list[Path]:
     pygame.image.save(app.screen.surface.copy(), str(p))
     saved.append(p)
 
+    # ── Этап 2: живой лог во время атаки ──
+    app._on_theme_change('matrix')
+    app.settings.window_scale = '0.75'
+    app.apply_window_size()
+    app.log.clear()
+    app._welcome()
+    app.set_mode('aggressive')
+    app.attack = __import__('gamedev.attack', fromlist=['Attack']).Attack(
+        targets=['github / github.com', 'nasa / nasa.gov'],
+        params=__import__('gamedev.attack', fromlist=['mode_params'])
+        .mode_params('aggressive'),
+        minigame_chance=70, show_calculations=True,
+        rng=__import__('random').Random(3))
+    for _ in range(300):
+        app.attack.update(0.1)
+    app.log.append(app.attack.drain())
+    app.draw()
+    p = out_dir / 'stage2-attack-log.png'
+    pygame.image.save(app.screen.surface.copy(), str(p))
+    saved.append(p)
+
+    # кадр 7: пауза посреди атаки
+    app.paused = True
+    app.draw()
+    p = out_dir / 'stage2-paused.png'
+    pygame.image.save(app.screen.surface.copy(), str(p))
+    saved.append(p)
+
     print(f'окно: {app.size_info.describe()}, монитор: {app.monitor}')
     pygame.quit()
     return saved
