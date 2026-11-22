@@ -101,6 +101,10 @@ class App:
         self.glitch_hold = 0.0
 
         self._build_main_ui()
+        # геометрия панелей и модалки навыков нужна handle_events()
+        # ещё до первого draw() — иначе события мыши падают с AttributeError
+        self._layout_panels(config.LOGICAL_W, config.LOGICAL_H)
+        self._layout_skills()
         self._build_menu_ui()
         self._build_log()
         self._welcome()
@@ -608,6 +612,25 @@ class App:
         return self.targets.items[visible[index][0]]
 
     # ── навыки ──────────────────────────────────────────────────────────
+    def _layout_skills(self) -> None:
+        """Геометрия модалки навыков.
+
+        Считается в __init__: handle_events() ходит по skill_buttons /
+        skills_modal до первого draw(), и без этого двойной клик по
+        «НАВЫКИ» падал с AttributeError.
+        """
+        w, h = 560, 420
+        r = pygame.Rect((config.LOGICAL_W - w) // 2,
+                        (config.LOGICAL_H - h) // 2, w, h)
+        self.skills_modal = r
+        self.skill_buttons = {}
+        y = r.y + 64
+        for sid in self.SKILL_LABELS:
+            row = pygame.Rect(r.x + 16, y, r.width - 32, 76)
+            self.skill_buttons[sid] = pygame.Rect(row.right - 132,
+                                                  row.y + 22, 118, 32)
+            y += 84
+
     def _handle_skills(self, event) -> None:
         if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
             pos = self._logical(event)
@@ -627,6 +650,10 @@ class App:
         if event.type in (pygame.MOUSEMOTION, pygame.MOUSEBUTTONDOWN,
                           pygame.MOUSEBUTTONUP):
             return self.screen.to_logical(event.pos)
+        if event.type == pygame.MOUSEWHEEL:
+            # у события колеса в pygame нет pos — позиция берётся от курсора
+            pos = getattr(event, 'pos', None) or pygame.mouse.get_pos()
+            return self.screen.to_logical(pos)
         return (-1, -1)
 
     def _menu_event(self, event):
@@ -1033,9 +1060,8 @@ class App:
         dim.set_alpha(170)
         surf.blit(dim, (0, 0))
 
-        w, h = 560, 420
-        r = pygame.Rect((W - w) // 2, (H - h) // 2, w, h)
-        self.skills_modal = r
+        self._layout_skills()
+        r = self.skills_modal
         pygame.draw.rect(surf, theme['bg_dark'], r)
         pygame.draw.rect(surf, theme['accent'], r, 1)
 
@@ -1046,7 +1072,6 @@ class App:
         surf.blit(sp, (r.right - sp.get_width() - 24, r.y + 20))
         pygame.draw.line(surf, theme['border'], (r.x + 1, r.y + 52), (r.right - 1, r.y + 52))
 
-        self.skill_buttons = {}
         y = r.y + 64
         for sid, (name, desc) in self.SKILL_LABELS.items():
             level = self.player.skills[sid]
@@ -1063,8 +1088,7 @@ class App:
             surf.blit(book.render(f'{bar} ур. {level}/{MAX_LEVEL}', 9, theme['accent']),
                       (row.x + 12, row.y + 44))
 
-            btn = pygame.Rect(row.right - 132, row.y + 22, 118, 32)
-            self.skill_buttons[sid] = btn
+            btn = self.skill_buttons[sid]
             can = self.player.can_upgrade(sid)
             if level >= MAX_LEVEL:
                 label, color, border = 'MAX', theme['accent'], theme['border']
