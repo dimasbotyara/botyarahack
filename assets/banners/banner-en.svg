@@ -1,0 +1,102 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="320" viewBox="0 0 1200 320" role="img" aria-labelledby="t d">
+  <title id="t">botyarahack — SECURITY EXPLOIT KIT v5.0.0</title>
+  <desc id="d">Hacker terminal simulator game: matrix rain, ASCII art, eight mini-games. A game, not a real hacking tool.</desc>
+
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#000000"/>
+      <stop offset="0.55" stop-color="#03120a"/>
+      <stop offset="1" stop-color="#001a0d"/>
+    </linearGradient>
+    <linearGradient id="titleGrad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#7dffb0"/>
+      <stop offset="0.5" stop-color="#00ff66"/>
+      <stop offset="1" stop-color="#00b347"/>
+    </linearGradient>
+    <linearGradient id="sig" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#00ff66" stop-opacity="0"/>
+      <stop offset="0.5" stop-color="#00ff66" stop-opacity="0.9"/>
+      <stop offset="1" stop-color="#00ff66" stop-opacity="0"/>
+    </linearGradient>
+    <filter id="soft" x="-20%" y="-60%" width="140%" height="240%">
+      <feGaussianBlur stdDeviation="9"/>
+    </filter>
+    <pattern id="scan" width="4" height="4" patternUnits="userSpaceOnUse">
+      <rect y="3" width="4" height="1" fill="#00ff66" opacity="0.05"/>
+    </pattern>
+    <clipPath id="frame">
+      <rect x="2" y="2" width="1196" height="316" rx="16"/>
+    </clipPath>
+  </defs>
+
+  <g clip-path="url(#frame)">
+    <rect width="1200" height="320" fill="url(#bg)"/>
+
+    <!-- matrix rain: только по краям, центр оставляем чистым -->
+    <rect x="924" y="0" width="276" height="320" fill="#000000" opacity="0.6"/>
+    <g font-family="'JetBrains Mono','DejaVu Sans Mono',Consolas,monospace" font-size="13" fill="#00ff66" opacity="0.42">
+      <text x="30" y="106">й ц у к е н г ш щ з</text>
+      <text x="24" y="140">q w e r t y u i o p</text>
+      <text x="44" y="174">a s d f g h j k l</text>
+      <text x="30" y="208">z x c v b n m 6 7</text>
+      <text x="52" y="238">ф ы в а п р о л д</text>
+      <text x="1052" y="106">7 3 9 1 0 4 8</text>
+      <text x="1056" y="140">0 1 1 0 1 1 1</text>
+      <text x="1058" y="174">д ж э я ч с м</text>
+      <text x="1054" y="208">8 4 2 9 0 7 6</text>
+      <text x="1058" y="238">n m b v c x z</text>
+    </g>
+
+    <!-- направляющие -->
+    <g stroke="#00ff66" opacity="0.28">
+      <path d="M0 74 H1200" stroke-width="1" stroke-dasharray="6 10"/>
+      <path d="M0 246 H1200" stroke-width="1" stroke-dasharray="6 10"/>
+      <path d="M196 0 V320" stroke-width="1" stroke-dasharray="2 14"/>
+      <path d="M1004 0 V320" stroke-width="1" stroke-dasharray="2 14"/>
+    </g>
+
+    <rect width="1200" height="320" fill="url(#scan)"/>
+
+    <!-- уголки -->
+    <g stroke="#00ff66" stroke-width="3" fill="none" opacity="0.9">
+      <path d="M32 64 V32 H64"/>
+      <path d="M1136 32 H1168 V64"/>
+      <path d="M32 256 V288 H64"/>
+      <path d="M1136 288 H1168 V256"/>
+    </g>
+
+    <!-- заголовок -->
+    <text x="600" y="142" text-anchor="middle" font-family="'JetBrains Mono','DejaVu Sans Mono',Consolas,monospace"
+          font-size="62" font-weight="700" letter-spacing="3" fill="#00ff66" opacity="0.55" filter="url(#soft)">BOTYARAHACK</text>
+    <text x="600" y="142" text-anchor="middle" font-family="'JetBrains Mono','DejaVu Sans Mono',Consolas,monospace"
+          font-size="62" font-weight="700" letter-spacing="3" fill="url(#titleGrad)">BOTYARAHACK</text>
+
+    <!-- подзаголовок -->
+    <text x="600" y="180" text-anchor="middle" font-family="'JetBrains Mono','DejaVu Sans Mono',Consolas,monospace"
+          font-size="17" letter-spacing="6" fill="#7dff9e">SECURITY EXPLOIT KIT · v5.0.0</text>
+
+    <!-- теги -->
+    <g font-family="'JetBrains Mono','DejaVu Sans Mono',Consolas,monospace" font-size="12.5" text-anchor="middle">
+      <g>
+        <rect x="392" y="196" width="132" height="28" rx="14" fill="#00ff66" fill-opacity="0.07" stroke="#00ff66" stroke-opacity="0.5"/>
+        <text x="458" y="215" fill="#4dff8f">PYTHON · PYGAME</text>
+      </g>
+      <g>
+        <rect x="536" y="196" width="128" height="28" rx="14" fill="#00ff66" fill-opacity="0.07" stroke="#00ff66" stroke-opacity="0.5"/>
+        <text x="600" y="215" fill="#4dff8f">8 MINI-GAMES</text>
+      </g>
+      <g>
+        <rect x="676" y="196" width="132" height="28" rx="14" fill="#00ff66" fill-opacity="0.07" stroke="#00ff66" stroke-opacity="0.5"/>
+        <text x="742" y="215" fill="#4dff8f">5 THEMES</text>
+      </g>
+    </g>
+
+    <text x="600" y="268" text-anchor="middle" font-family="'JetBrains Mono','DejaVu Sans Mono',Consolas,monospace"
+          font-size="12.5" letter-spacing="3" fill="#00b34a">A GAME · NOT A REAL HACKING TOOL</text>
+
+    <path d="M120 292 H1080" stroke="url(#sig)" stroke-width="1.5"/>
+
+    <rect x="2" y="2" width="1196" height="316" rx="16" fill="none" stroke="#00ff66" stroke-opacity="0.5" stroke-width="2"/>
+  </g>
+</svg>
