@@ -27,6 +27,7 @@ from .attack import Attack, LogLine, mode_params
 from .attackmap import AttackMap
 from .console import Console
 from .background import MatrixRain
+from .menu_backgrounds import MenuBackground
 from .display import compute_size
 from .logpanel import LogView
 from .minigames import Minigame, make_game
@@ -56,6 +57,8 @@ class App:
         pygame.display.set_caption(config.TITLE)
 
         self.settings = Settings.load()
+        # плавное масштабирование захардкожено — всегда включено
+        self.settings.smooth_scaling = True
         self.theme = Theme(self.settings.theme)
         self.book = None          # заполним после pygame.font.init()
 
@@ -69,7 +72,7 @@ class App:
         from assets.fonts.fontloader import FontBook
         self.book = FontBook(pygame)
 
-        self.screen = Screen(self.window, smooth=self.settings.smooth_scaling,
+        self.screen = Screen(self.window, smooth=True,
                              book=self.book)
         self.clock = pygame.time.Clock()
         self.running = True
@@ -114,6 +117,10 @@ class App:
         self.current_slot = None  # (mode, slot)
         # фильтр категорий
         self.filter_open = False
+        # пауза (в игре)
+        self.pause_open = False
+        # анимированный фон главного меню (10 вариантов)
+        self.menu_bg = MenuBackground(config.LOGICAL_W, config.LOGICAL_H, seed=1337)
 
         self._build_main_ui()
         # геометрия панелей и модалки навыков нужна handle_events()
@@ -127,11 +134,12 @@ class App:
     # ── сборка интерфейса ────────────────────────────────────────────────
     def _build_main_ui(self) -> None:
         W, H = config.LOGICAL_W, config.LOGICAL_H
+        # пауза — в самом верхнем правом углу, логи — левее (поменяли местами по ТЗ)
         self.header_buttons = [
-            Button(rect=pygame.Rect(W - 166, 12, 76, 24), text='⚙ Настройки',
-                   size=10, on_click=self.open_menu),
-            Button(rect=pygame.Rect(W - 86, 12, 54, 24), text='📜', size=10,
-                   on_click=self._toggle_history),
+            Button(rect=pygame.Rect(W - 166, 12, 76, 24), text='📜 ЛОГИ',
+                   size=10, on_click=self._toggle_history),
+            Button(rect=pygame.Rect(W - 86, 12, 76, 24), text='⏸ ПАУЗА',
+                   size=10, on_click=self._toggle_pause),
         ]
         self.status_lights = [('DARKNET', True), ('TOR', True), ('VPN', False),
                               ('CRYPTO', True)]
@@ -215,15 +223,12 @@ class App:
             checked=self.settings.show_calculations,
             on_change=self._on_calc_change)
 
-        self.smooth_cb = Checkbox(
-            rect=pygame.Rect(x0, row3, 230, 20), text='Плавное масштабирование',
-            checked=self.settings.smooth_scaling,
-            on_change=self._on_smooth_change)
+        # smooth_scaling захардкожено — чекбокс убран по ТЗ
 
         y = py + panel_h - 46
         self.menu_widgets = [self.theme_dd, self.size_dd, self.window_mode_dd,
                              self.chance_slider,
-                             self.glitches_cb, self.calc_cb, self.smooth_cb]
+                             self.glitches_cb, self.calc_cb]
         self.menu_buttons = [
             Button(rect=pygame.Rect(px + panel_w - 140, y, 110, 28),
                    text='💾 Сохранить', size=11, accent=True,
@@ -430,10 +435,6 @@ class App:
         if self.attack:
             self.attack.show_calculations = value
 
-    def _on_smooth_change(self, value: bool) -> None:
-        self.settings.smooth_scaling = value
-        self.screen.smooth = value      # применяется сразу, без рестарта
-
     def apply_window_size(self) -> None:
         """Пересчитывает и применяет размер окна (только через настройки)."""
         info = pygame.display.Info()
@@ -449,13 +450,19 @@ class App:
             if w and h:
                 self.size_info = compute_size(w, h, mode='auto')
         self.window = pygame.display.set_mode((w, h), flags)
-        self.screen = Screen(self.window, smooth=self.settings.smooth_scaling,
+        self.screen = Screen(self.window, smooth=True,
                              book=self.book)
         # подписи в дропдауне размера зависят от монитора
         if hasattr(self, 'size_dd'):
             self._refresh_size_options()
 
+    def _on_smooth_change(self, value: bool) -> None:
+        # захардкожено — всегда включено, вызовы из старого кода игнорируются
+        self.settings.smooth_scaling = True
+        self.screen.smooth = True
+
     def open_menu(self) -> None:
+        # вызывается из паузы — пауза остаётся под настройками
         self.menu_open = True
         self._refresh_size_options()
         self.theme_dd.value = self.settings.theme
@@ -464,7 +471,6 @@ class App:
         self.chance_slider.value = self.settings.minigame_chance
         self.glitches_cb.checked = self.settings.glitch_enabled
         self.calc_cb.checked = self.settings.show_calculations
-        self.smooth_cb.checked = self.settings.smooth_scaling
 
     def save_and_close(self) -> None:
         self.settings.save()
@@ -479,6 +485,95 @@ class App:
         if self.history_open:
             self.history_entries = history.load()
             self.history_scroll = 0
+
+    # ── пауза (в игре, кнопка в шапке справа) ──────────────────────────
+    def _toggle_pause(self) -> None:
+        # не даём открыть паузу на главном меню — там своя логика
+        if self.show_main_menu or self.mode_select_open or self.slots_open:
+            return
+        if self.typing_name:
+            return
+        self.pause_open = not self.pause_open
+        if self.pause_open:
+            # ставим атаку на паузу, закрываем другие оверлеи
+            if self.attack and not self.paused:
+                self.paused = True
+            self.history_open = False
+            self.skills_open = False
+            self.menu_open = False
+            self.console.open = False
+
+    def _pause_rect(self) -> dict:
+        W, H = config.LOGICAL_W, config.LOGICAL_H
+        w, h = 420, 390
+        r = pygame.Rect((W - w) // 2, (H - h) // 2, w, h)
+        btn_w, btn_h = 260, 38
+        cx = r.centerx - btn_w // 2
+        y0 = r.y + 62
+        keys = ['resume', 'settings', 'save', 'load', 'menu', 'desktop']
+        rects = {'panel': r}
+        for i, k in enumerate(keys):
+            rects[k] = pygame.Rect(cx, y0 + i * 48, btn_w, btn_h)
+        return rects
+
+    def _handle_pause(self, event) -> bool:
+        rects = self._pause_rect()
+        if event.type == pygame.KEYDOWN and event.key in (pygame.K_ESCAPE, pygame.K_m):
+            # M и ESC закрывают паузу (M — тоггл)
+            self.pause_open = False
+            return True
+        if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+            pos = self._logical(event)
+            if rects['resume'].collidepoint(pos):
+                self.pause_open = False
+                return True
+            if rects['settings'].collidepoint(pos):
+                self.open_menu()
+                return True
+            if rects['save'].collidepoint(pos):
+                self._pause_save()
+                return True
+            if rects['load'].collidepoint(pos):
+                self.pause_open = False
+                # открываем выбор слотов (загрузка)
+                self.slots_open = True
+                self.mode_select_open = False
+                # selected_mode уже стоит, но если пусто — sandbox
+                if not getattr(self, 'selected_mode', None):
+                    self.selected_mode = 'sandbox'
+                return True
+            if rects['menu'].collidepoint(pos):
+                self.pause_open = False
+                # выход в главное меню — тихо ставим на паузу атаку
+                if self.attack:
+                    self.paused = True
+                self.show_main_menu = True
+                self.mode_select_open = False
+                self.slots_open = False
+                return True
+            if rects['desktop'].collidepoint(pos):
+                self.running = False
+                return True
+            if not rects['panel'].collidepoint(pos):
+                # клик мимо — закрыть паузу
+                self.pause_open = False
+                return True
+        return False
+
+    def _pause_save(self):
+        """Сохранить прогресс в текущий слот (или в sandbox:1)."""
+        try:
+            mode = getattr(self, 'selected_mode', 'sandbox') or 'sandbox'
+            slot = 1
+            if self.current_slot:
+                mode, slot = self.current_slot
+            saves.save_slot(mode, slot, self.player)
+            # также синхронизируем основной профиль
+            self.player.save()
+            self.log_line(f'💾 Сохранено в {mode}:{slot}', 'success')
+            self.pause_open = False
+        except Exception as exc:
+            self.log_line(f'⚠ Сохранение не удалось: {exc}', 'error')
 
     def _export_log(self) -> None:
         """Сохранить лог в файл рядом с профилем (без диалогов)."""
@@ -501,10 +596,13 @@ class App:
                 self.time += dt
                 self.handle_events()
                 self.matrix.update(dt)
+                self.menu_bg.update(dt)
                 self.map.update(dt)
                 self._pump_glitch(dt)
                 self._pump_minigame(dt)
-                self._pump_attack(min(dt, 0.1))
+                # атака на паузе не тикает
+                if not self.pause_open:
+                    self._pump_attack(min(dt, 0.1))
                 self.draw()
                 pygame.display.flip()
         except KeyboardInterrupt:
@@ -549,6 +647,18 @@ class App:
                 # ввод ника — всё остальное заблокировано
                 pass
             else:
+                # пауза имеет приоритет над остальными меню
+                if self.pause_open:
+                    if self._handle_pause(event):
+                        continue
+                    # настройки поверх паузы
+                    if self.menu_open:
+                        # дадим меню обработать позже, но гасим лишнее
+                        pass
+                    else:
+                        # SPACE/ESC уже в _handle_pause, остальное гасим
+                        if event.type in (pygame.KEYDOWN, pygame.MOUSEBUTTONDOWN):
+                            continue
                 if self.filter_open:
                     if self._handle_filter(event):
                         continue
@@ -559,6 +669,13 @@ class App:
                     if self._handle_mode_select(event):
                         continue
                 if self.show_main_menu:
+                    # в главном меню пробел/стрелки меняют фон
+                    if event.type == pygame.KEYDOWN and event.key in (pygame.K_SPACE, pygame.K_RIGHT, pygame.K_LEFT):
+                        if event.key == pygame.K_SPACE or event.key == pygame.K_RIGHT:
+                            self.menu_bg.next()
+                        else:
+                            self.menu_bg.prev()
+                        continue
                     if self._handle_main_menu(event):
                         continue
 
@@ -566,6 +683,12 @@ class App:
                 if event.key == pygame.K_ESCAPE:
                     if self.console.open:
                         self.console.open = False
+                    elif self.pause_open:
+                        # если открыты настройки поверх паузы — закрыть их, пауза остаётся
+                        if self.menu_open:
+                            self.menu_open = False
+                        else:
+                            self.pause_open = False
                     elif self.history_open:
                         self.history_open = False
                     elif self.skills_open:
@@ -594,7 +717,7 @@ class App:
                         continue
                     if event.key == pygame.K_m:
                         self.history_open = False
-                        self.open_menu()
+                        self._toggle_pause()
                         continue
                     if event.key in (pygame.K_UP, pygame.K_DOWN):
                         step = 1 if event.key == pygame.K_UP else -1
@@ -621,16 +744,15 @@ class App:
                     continue
 
                 if event.key == pygame.K_m:
-                    if self.menu_open:
-                        self.menu_open = False
-                    else:
-                        # если открыт другой оверлей — закрыть его и открыть настройки
-                        if self.history_open:
-                            self.history_open = False
-                        self.open_menu()
+                    # M теперь — пауза, а не настройки (по ТЗ)
+                    if self.show_main_menu or self.mode_select_open or self.slots_open:
+                        continue
+                    if self.typing_name:
+                        continue
+                    self._toggle_pause()
                     continue
                 if event.key in (pygame.K_F1, pygame.K_BACKQUOTE) and \
-                        not self.menu_open:
+                        not self.menu_open and not self.pause_open:
                     self.console.open = not self.console.open
                     continue
                 if event.key == pygame.K_h:
@@ -639,14 +761,16 @@ class App:
                     else:
                         if self.menu_open:
                             self.menu_open = False
+                        if self.pause_open:
+                            self.pause_open = False
                         self.history_open = True
                         self.history_entries = history.load()
                         self.history_scroll = 0
                     continue
-                if event.key == pygame.K_F12 and not self.menu_open:
+                if event.key == pygame.K_F12 and not self.menu_open and not self.pause_open:
                     self._export_log()
                     continue
-                if event.key == pygame.K_SPACE and self.attack and not self.menu_open:
+                if event.key == pygame.K_SPACE and self.attack and not self.menu_open and not self.pause_open:
                     self.paused = not self.paused
                     self.log_line('⏸ Пауза' if self.paused else '▶ Продолжаю', 'warning')
                     continue
@@ -868,10 +992,36 @@ class App:
             return pygame.event.Event(event.type, attrs)
         return event
 
+    def _is_main_menu_bg(self) -> bool:
+        return (self.show_main_menu or self.mode_select_open or self.slots_open) and not self.typing_name
+
     # ── отрисовка ────────────────────────────────────────────────────────
     def draw(self) -> None:
         surf = self.screen.surface
         W, H = config.LOGICAL_W, config.LOGICAL_H
+
+        # главное меню — свой анимированный фон вместо игры
+        if self._is_main_menu_bg():
+            self.menu_bg.draw(surf, self.theme)
+            # лёгкое затемнение уже внутри фона, панель поверх
+            if self.show_main_menu:
+                self._draw_main_menu(surf, W, H)
+            elif self.mode_select_open:
+                self._draw_mode_select(surf, W, H)
+            elif self.slots_open:
+                self._draw_slots(surf, W, H)
+            # настройки поверх главного меню (кнопка Настройки в главном меню)
+            if self.menu_open:
+                self._draw_menu(surf, W, H)
+            if self.typing_name:
+                self._draw_name_prompt(surf, W, H)
+            # подсказка смены фона
+            self._draw_menu_bg_hint(surf, W, H)
+            self.screen.blit_to_window()
+            if self.glitch_shift:
+                self._apply_glitch()
+            return
+
         surf.fill(self.theme['bg_dark'])
         self.matrix.draw(surf, self.theme, self.book)
 
@@ -879,6 +1029,8 @@ class App:
         self._draw_panels(surf, W, H)
         self._draw_footer(surf, W, H)
 
+        if self.pause_open:
+            self._draw_pause(surf, W, H)
         if self.menu_open:
             self._draw_menu(surf, W, H)
         if self.skills_open:
@@ -891,16 +1043,8 @@ class App:
             self.minigame.draw(surf, W, H, self.theme, self.book)
         if self.typing_name:
             self._draw_name_prompt(surf, W, H)
-        # главное меню поверх всего (кроме ввода ника)
-        if not self.typing_name:
-            if self.show_main_menu:
-                self._draw_main_menu(surf, W, H)
-            elif self.mode_select_open:
-                self._draw_mode_select(surf, W, H)
-            elif self.slots_open:
-                self._draw_slots(surf, W, H)
-            elif self.filter_open:
-                self._draw_filter(surf, W, H)
+        if self.filter_open:
+            self._draw_filter(surf, W, H)
 
         self.screen.blit_to_window()
         if self.glitch_shift:
@@ -1403,7 +1547,7 @@ class App:
         surf.blit(img, (16, top + 29))
 
         hint = book.render(
-            'ВЗЛОМАТЬ — старт/стоп │ SPACE — пауза │ H — история │ M — настройки │ '
+            'ВЗЛОМАТЬ — старт/стоп │ SPACE — пауза │ H — история │ M — пауза │ '
             'F1 — консоль │ F12 — экспорт лога │ ESC — выход', 9, theme['muted'])
         surf.blit(hint, (16, top + 46))
 
@@ -1432,7 +1576,6 @@ class App:
 
         self._menu_caption(surf, 'Эффекты', self.glitches_cb.rect.x,
                            y=self.glitches_cb.rect.y - 24)
-        self._menu_caption(surf, 'Масштабирование', self.smooth_cb.rect)
         self._menu_caption(surf, 'Режим окна', self.window_mode_dd.rect)
 
         dropdowns = [self.theme_dd, self.size_dd, self.window_mode_dd]
@@ -1752,6 +1895,47 @@ class App:
             x = rect_or_x
         img = book.render(text, 11, theme['fg_dim'])
         surf.blit(img, (x, y))
+
+    def _draw_pause(self, surf, W: int, H: int) -> None:
+        theme, book = self.theme, self.book
+        dim_surface(surf, 150)
+        rects = self._pause_rect()
+        r = rects['panel']
+        pygame.draw.rect(surf, theme['bg_dark'], r)
+        pygame.draw.rect(surf, theme['accent'], r, 2)
+        title = book.render('⏸ ПАУЗА', 20, theme['accent'], chain=['jetbrains_bold', 'symbols', 'emoji'])
+        surf.blit(title, (r.centerx - title.get_width() // 2, r.y + 14))
+        sub = book.render('ESC — продолжить', 9, theme['muted'])
+        surf.blit(sub, (r.centerx - sub.get_width() // 2, r.y + 40))
+        labels = {
+            'resume': '▶ Продолжить',
+            'settings': '⚙ Настройки',
+            'save': '💾 Сохранить',
+            'load': '📂 Загрузить',
+            'menu': '⌂ В главное меню',
+            'desktop': '✖ На рабочий стол',
+        }
+        for key, rect in rects.items():
+            if key == 'panel':
+                continue
+            accent = (key == 'resume')
+            pygame.draw.rect(surf, theme['bg_light'] if accent else theme['bg_medium'], rect)
+            pygame.draw.rect(surf, theme['accent'] if accent else theme['border'], rect, 1)
+            img = book.render(labels[key], 12, theme['accent'] if accent else theme['fg_main'])
+            surf.blit(img, (rect.centerx - img.get_width() // 2, rect.centery - img.get_height() // 2))
+
+    def _draw_menu_bg_hint(self, surf, W: int, H: int) -> None:
+        theme, book = self.theme, self.book
+        from .menu_backgrounds import NAMES as BG_NAMES
+        n = len(BG_NAMES)
+        txt = f'фон: {self.menu_bg.name} [{self.menu_bg.idx + 1}/{n}]  —  ПРОБЕЛ / ←→ — сменить  •  авто каждые 11 c'
+        img = book.render(txt, 9, theme['muted'])
+        # полупрозрачная подложка
+        pad = 6
+        bg_rect = pygame.Rect(W // 2 - img.get_width() // 2 - pad, H - 18, img.get_width() + pad * 2, 14)
+        pygame.draw.rect(surf, theme['bg_dark'], bg_rect)
+        pygame.draw.rect(surf, theme['border'], bg_rect, 1)
+        surf.blit(img, (bg_rect.x + pad, bg_rect.y + 1))
 
 
 def main() -> int:

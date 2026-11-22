@@ -43,7 +43,7 @@ class Settings:
             attack_mode=self.attack_mode if self.attack_mode in VALID_MODES else 'normal',
             window_scale=normalize_mode(self.window_scale),
             window_mode=normalize_window_mode(getattr(self, 'window_mode', config.WINDOW_MODE_DEFAULT)),
-            smooth_scaling=bool(self.smooth_scaling),
+            smooth_scaling=True,  # захардкожено — всегда плавно
             vsync=bool(self.vsync),
             sound=bool(self.sound),
         )
