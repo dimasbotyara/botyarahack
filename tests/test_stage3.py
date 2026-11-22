@@ -382,6 +382,82 @@ def test_export_log_writes_file():
     pygame.quit()
 
 
+# ─────────── события до первого draw (регрессия крашей) ───────────
+def test_mouse_events_before_first_draw():
+    """События мыши до первого draw() не роняют App.
+
+    Геометрия панелей (skills_rect и ко.) раньше создавалась только в
+    _draw_panels(), а handle_events() в run() идёт первым — любой
+    MOUSEMOTION при старте падал с AttributeError.
+    """
+    pygame, app = _app()
+    assert hasattr(app, 'skills_rect'), 'skills_rect не создан в __init__'
+    assert hasattr(app, 'search_rect'), 'search_rect не создан в __init__'
+    assert hasattr(app, 'targets_rect'), 'targets_rect не создан в __init__'
+
+    pygame.event.post(pygame.event.Event(
+        pygame.MOUSEMOTION, {'pos': (100, 100), 'rel': (0, 0),
+                             'buttons': (0, 0, 0)}))
+    pygame.event.post(pygame.event.Event(
+        pygame.MOUSEBUTTONDOWN, {'pos': (100, 100), 'button': 1}))
+    app.handle_events()             # раньше падало: AttributeError
+    pygame.quit()
+
+
+def test_skills_double_click_before_first_draw():
+    """Двойной клик по «НАВЫКИ» до отрисовки модалки не падает.
+
+    skill_buttons / skills_modal раньше создавались только в
+    _draw_skills(); второй клик в той же пачке событий шёл в
+    _handle_skills() до первого draw() — AttributeError.
+    """
+    pygame, app = _app()
+    assert hasattr(app, 'skill_buttons'), 'skill_buttons не создан в __init__'
+    assert hasattr(app, 'skills_modal'), 'skills_modal не создан в __init__'
+
+    cx, cy = app.screen.to_window(app.skills_rect.center)
+    for _ in range(2):              # двойной клик одной пачкой
+        pygame.event.post(pygame.event.Event(
+            pygame.MOUSEBUTTONDOWN, {'pos': (cx, cy), 'button': 1}))
+    app.handle_events()             # раньше падало: AttributeError
+    pygame.quit()
+
+
+def test_mousewheel_scrolls_log_and_targets():
+    """Колесо мыши листает лог и список целей.
+
+    У реального события MOUSEWHEEL в pygame нет атрибута pos (только
+    x, y, flipped, precise_*), поэтому _logical() раньше возвращал
+    (-1, -1) и ветки прокрутки были мёртвым кодом. Теперь позиция
+    берётся от курсора — здесь эмулируем это pygame.mouse.get_pos().
+    """
+    pygame, app = _app()
+    app.draw()
+    from gamedev.attack import LogLine
+    for i in range(200):
+        app.log.append([LogLine(f'строка {i}', 'info')])
+
+    real_get_pos = pygame.mouse.get_pos
+    try:
+        # как в реальной игре: у события нет pos, позиция — от курсора
+        pygame.mouse.get_pos = \
+            lambda: app.screen.to_window(app.log.rect.center)
+        pygame.event.post(pygame.event.Event(
+            pygame.MOUSEWHEEL, {'x': 0, 'y': 3}))
+        app.handle_events()
+        assert app.log.scroll > 0, 'колесо не прокрутило лог'
+
+        pygame.mouse.get_pos = \
+            lambda: app.screen.to_window(app.targets_rect.center)
+        pygame.event.post(pygame.event.Event(
+            pygame.MOUSEWHEEL, {'x': 0, 'y': -3}))
+        app.handle_events()
+        assert app.targets.scroll > 0, 'колесо не прокрутило список целей'
+    finally:
+        pygame.mouse.get_pos = real_get_pos
+    pygame.quit()
+
+
 if __name__ == '__main__':
     tests = [(n, f) for n, f in sorted(globals().items()) if n.startswith('test_')]
     failed = 0
