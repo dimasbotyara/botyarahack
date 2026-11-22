@@ -1,20 +1,27 @@
-# Единый стиль переводов строк в репозитории: LF.
-# Git сам отдаёт рабочей копии CRLF на Windows (core.autocrlf=true) и LF на Linux/macOS,
-# поэтому гонять файлы туда-обратно не нужно:
-#   * text=auto  — Git сам определяет текстовые файлы и нормализует их в LF в коммите
+# Единый стиль переводов строк: в репозитории — LF.
+#
+# Атрибут "text" (без eol=...) означает: Git нормализует файл в LF при коммите,
+# а при checkout конвертирует обратно в CRLF ТОЛЬКО если у тебя включён
+# core.autocrlf=true (обычное поведение Git for Windows).
+# На Linux/macOS файлы остаются с LF. Так один репозиторий работает везде.
 * text=auto
 
-# Явно: питоновские исходники — LF в репозитории, CRLF в рабочей копии Windows
-*.py       text eol=crlf
-*.pyw      text eol=crlf
-*.txt      text eol=crlf
-*.md       text eol=crlf
-*.json     text eol=crlf
+# Исходники и тексты — точно текстовые (нормализуются в LF в репозитории)
+*.py       text
+*.pyw      text
+*.txt      text
+*.md       text
+*.json     text
+*.yml      text
+*.yaml     text
+*.toml     text
+*.ini      text
+*.cfg      text
+*.bat      text
+*.cmd      text
 
-# Скрипты должны остаться с LF даже на Windows (иначе shebang ломается)
+# Скрипты всегда с LF (иначе ломается shebang)
 *.sh       text eol=lf
-*.bat      text eol=crlf
-*.cmd      text eol=crlf
 
 # Бинарные файлы — без автоконвертации
 *.png      binary
@@ -22,8 +29,12 @@
 *.jpeg     binary
 *.gif      binary
 *.ico      binary
+*.bmp      binary
 *.wav      binary
 *.mp3      binary
 *.ogg      binary
 *.ttf      binary
+*.otf      binary
 *.zip      binary
+*.exe      binary
+*.dll      binary
