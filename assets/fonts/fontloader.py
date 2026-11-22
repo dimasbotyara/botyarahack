@@ -206,18 +206,26 @@ class FontBook:
             if not part:
                 continue
             font = self._font_hd(owner, size)
-            surfaces.append(font.render(part, True, color))
+            surfaces.append((font, font.render(part, True, color)))
 
         if not surfaces:
             return RenderedText(pg.Surface((0, main_h), pg.SRCALPHA),
                                 self.render_scale, self.render_scale)
 
-        total_w = sum(s.get_width() for s in surfaces)
+        total_w = sum(s.get_width() for _, s in surfaces)
         out = pg.Surface((total_w, main_h), pg.SRCALPHA)
+        main_ascent = main.get_ascent()
         x = 0
-        for s in surfaces:
-            # центрируем по вертикали — иначе иконки (✖, 🔍, 💾) «прыгают» относительно текста
-            out.blit(s, (x, (main_h - s.get_height()) // 2))
+        for font, s in surfaces:
+            # Выравниваем по базовой линии (ascent основного шрифта), а не по
+            # центру поверхности: у фолбэков своя высота/шрифтовой метрик, и
+            # иначе иконки (⏸, ✖, 🔍) «прыгают» на 1–3px относительно текста.
+            # Ограничение не даёт глифу вылезти за края строки (clamp).
+            y = main_ascent - font.get_ascent()
+            ink = s.get_bounding_rect()
+            if ink.width and ink.height:
+                y = max(-ink.top, min(y, main_h - ink.bottom))
+            out.blit(s, (x, y))
             x += s.get_width()
         return RenderedText(out, self.render_scale, self.render_scale)
 

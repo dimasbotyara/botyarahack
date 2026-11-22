@@ -517,6 +517,12 @@ class App:
         return rects
 
     def _handle_pause(self, event) -> bool:
+        # Настройки поверх паузы получают приоритет: пока menu_open, события
+        # уходят в обработку меню (ESC закроет настройки, клик мимо панели —
+        # тоже), а сама пауза остаётся открытой под ними. Иначе клик мимо
+        # закрывал паузу, а настройки оставались висеть над игрой.
+        if self.menu_open:
+            return False
         rects = self._pause_rect()
         if event.type == pygame.KEYDOWN and event.key in (pygame.K_ESCAPE, pygame.K_m):
             # M и ESC закрывают паузу (M — тоггл)
@@ -699,10 +705,10 @@ class App:
                         self.targets.filter_text = ''
                     elif self.search_active:
                         self.search_active = False
-                    elif self.attack:
-                        self.toggle_attack()
                     else:
-                        self.running = False
+                        # ESC не выходит из игры — открывает меню паузы
+                        # (отмена атаки — кнопка ВЗЛОМАТЬ, выход — «На рабочий стол»)
+                        self._toggle_pause()
                     continue
 
                 if self.console.open:
@@ -745,6 +751,10 @@ class App:
 
                 if event.key == pygame.K_m:
                     # M теперь — пауза, а не настройки (по ТЗ)
+                    if self.menu_open:
+                        # настройки поверх паузы — M закрывает их, пауза остаётся
+                        self.menu_open = False
+                        continue
                     if self.show_main_menu or self.mode_select_open or self.slots_open:
                         continue
                     if self.typing_name:
@@ -1393,10 +1403,12 @@ class App:
         return {'panel': r, 'checks': checks, 'done': done, 'clear': clear}
 
     def _handle_main_menu(self, event) -> bool:
+        # настройки поверх главного меню обрабатывает блок menu_open ниже
+        if self.menu_open:
+            return False
         rects = self._main_menu_rect()
         if event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
-            # на главном меню ESC — выход
-            self.running = False
+            # ESC на главном меню не выходит из игры — выход кнопкой «Выход»
             return True
         if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
             pos = self._logical(event)
@@ -1548,7 +1560,7 @@ class App:
 
         hint = book.render(
             'ВЗЛОМАТЬ — старт/стоп │ SPACE — пауза │ H — история │ M — пауза │ '
-            'F1 — консоль │ F12 — экспорт лога │ ESC — выход', 9, theme['muted'])
+            'F1 — консоль │ F12 — экспорт лога │ ESC — пауза', 9, theme['muted'])
         surf.blit(hint, (16, top + 46))
 
     def _draw_menu(self, surf, W: int, H: int) -> None:
