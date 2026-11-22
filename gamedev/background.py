@@ -44,29 +44,36 @@ class MatrixRain:
                 self.glyphs[i] = self._random_char()
 
     def draw(self, surf: pygame.Surface, theme: Theme, book, alpha: int = 120) -> None:
-        """Рисует столбцы (неярко — это фон)."""
+        """Рисует столбцы (неярко — это фон).
+
+        Яркость регулируется ЦВЕТОМ, а не set_alpha(): book.render отдаёт
+        поверхности из общего кэша, и менять у них альфу нельзя — испортится
+        весь остальной текст. К тому же set_alpha на SRCALPHA-поверхностях
+        на части платформ даёт чёрные плашки вместо глифов.
+        """
         # осветляем базовый цвет темы, иначе на почти чёрном фоне не видно
-        head = _lighten(theme['matrix_fg'], 2.4)
-        tail = _lighten(theme['matrix_fg'], 1.2)
+        head = _fade(_lighten(theme['matrix_fg'], 2.4), min(255, alpha + 80))
+        tail_base = _lighten(theme['matrix_fg'], 1.2)
+        tails = [_fade(tail_base, max(25, alpha - k * 14)) for k in range(1, 7)]
         for i in range(self.n_cols):
             x = i * self.col_width
             y = int(self.drops[i])
             # «голова» — поярче
-            img = book.render(self.glyphs[i], self.font_size, head)
-            img.set_alpha(min(255, alpha + 80))
-            surf.blit(img, (x, y))
+            surf.blit(book.render(self.glyphs[i], self.font_size, head), (x, y))
             # хвост — на пару символов вверх
-            for k in range(1, 7):
+            for k, tcol in enumerate(tails, start=1):
                 ty = y - k * self.font_size
                 if ty < -self.font_size:
                     break
                 ch = self.rng.choice(CHARS)
-                fade = max(25, alpha - k * 14)
-                timg = book.render(ch, self.font_size, tail)
-                timg.set_alpha(fade)
-                surf.blit(timg, (x, ty))
+                surf.blit(book.render(ch, self.font_size, tcol), (x, ty))
 
 
 def _lighten(color: tuple[int, int, int], factor: float) -> tuple[int, int, int]:
     """Умножает яркость цвета с потолком 255 — «подсветка» для матрицы."""
     return tuple(min(255, int(c * factor)) for c in color)
+
+
+def _fade(color: tuple[int, int, int], level: int) -> tuple[int, int, int]:
+    """Гасит цвет до уровня 0..255 — замена set_alpha для глифов."""
+    return tuple(c * level // 255 for c in color)

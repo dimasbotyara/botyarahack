@@ -20,7 +20,7 @@ from dataclasses import dataclass, field
 
 import pygame
 
-from .theme import Theme
+from .theme import Theme, dim_surface
 
 MODAL_W, MODAL_H = 640, 520
 
@@ -74,10 +74,7 @@ class Minigame:
         return pygame.Rect((W - MODAL_W) // 2, (H - MODAL_H) // 2, MODAL_W, MODAL_H)
 
     def draw(self, surf, W: int, H: int, theme: Theme, book) -> None:
-        dim = pygame.Surface((W, H))
-        dim.fill((0, 0, 0))
-        dim.set_alpha(200)
-        surf.blit(dim, (0, 0))
+        dim_surface(surf, 200)
 
         r = self.modal_rect(W, H)
         pygame.draw.rect(surf, theme['bg_dark'], r)

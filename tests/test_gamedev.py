@@ -268,6 +268,62 @@ def test_smooth_toggle_applies_live():
     pygame.quit()
 
 
+# ─────────────────── оверлеи и общий кэш без set_alpha ───────────────────
+def test_no_set_alpha_in_game_code():
+    """set_alpha + blit даёт чёрные квадраты поверх текста на части платформ.
+
+    Затемнение оверлеев идёт через dim_surface (BLEND_RGB_MULT),
+    яркость глифов — через цвет. Вызовов set_alpha в коде игры нет.
+    """
+    for path in sorted((REPO / 'gamedev').glob('*.py')):
+        tree = ast.parse(path.read_text(encoding='utf-8'))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Attribute) and node.attr == 'set_alpha':
+                raise AssertionError(
+                    f'{path.name}:{node.lineno}: set_alpha должен быть выключен')
+
+
+def test_rain_does_not_mutate_font_cache():
+    """Дождь рисует глифы из общего кэша FontBook — менять их нельзя."""
+    import pygame
+    from gamedev.app import App
+
+    app = App()
+    sample = app.book.render('X', 13, (0, 204, 0))
+    before = sample.get_alpha()
+    for _ in range(30):
+        app.matrix.update(1 / 60)
+        app.matrix.draw(app.screen.surface, app.theme, app.book)
+    fresh = app.book.render('X', 13, (0, 204, 0))
+    assert fresh is sample, 'кэш должен вернуть ту же поверхность'
+    assert fresh.get_alpha() == before, \
+        'матричный дождь испортил общий кэш шрифтов (set_alpha)'
+    pygame.quit()
+
+
+def test_click_outside_menu_closes_it():
+    import pygame
+    from gamedev.app import App
+
+    app = App()
+    app.typing_name = False
+    app.open_menu()
+
+    # клик внутри оверлея — меню остаётся
+    inside = app.screen.to_window(app.menu_rect.center)
+    pygame.event.post(pygame.event.Event(
+        pygame.MOUSEBUTTONDOWN, {'pos': inside, 'button': 1}))
+    app.handle_events()
+    assert app.menu_open, 'клик внутри оверлея не должен закрывать меню'
+
+    # клик за пределами — закрывает
+    pygame.event.post(pygame.event.Event(
+        pygame.MOUSEBUTTONDOWN, {'pos': (2, 2), 'button': 1}))
+    app.handle_events()
+    assert not app.menu_open, 'клик за пределами оверлея должен закрывать меню'
+    pygame.quit()
+
+
 if __name__ == '__main__':
     tests = [(n, f) for n, f in sorted(globals().items()) if n.startswith('test_')]
     failed = 0

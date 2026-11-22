@@ -1,6 +1,8 @@
-"""Работа с темами: hex → RGB, кэш цветов."""
+"""Работа с темами: hex → RGB, кэш цветов + затемнение поверхности."""
 
 from __future__ import annotations
+
+import pygame
 
 from . import config
 
@@ -36,3 +38,16 @@ class Theme:
     @staticmethod
     def all_themes() -> list[tuple[str, str]]:
         return [(k, v['name']) for k, v in config.THEMES.items()]
+
+
+def dim_surface(surface: pygame.Surface, strength: int) -> None:
+    """Затемняет поверхность к чёрному силой strength (0..255).
+
+    Визуально это «чёрная подложка с set_alpha(strength)», но без
+    per-surface alpha: работает через BLEND_RGB_MULT и поэтому
+    одинаково корректен на любых форматах дисплея и версиях pygame.
+    Путь set_alpha + blit на части драйверов даёт чёрные квадраты
+    поверх текста (артефакты блендинга) — поэтому его не используем.
+    """
+    k = max(0, min(255, 255 - strength))
+    surface.fill((k, k, k), special_flags=pygame.BLEND_RGB_MULT)
